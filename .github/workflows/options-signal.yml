@@ -32,10 +32,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Test Upstox API
-        env:
-          UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
-        run: python test_upstox.py
 
       - name: Run options scanner
         env:
