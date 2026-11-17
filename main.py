@@ -1,25 +1,24 @@
 import logging
-import requests
 
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from config import (
-    UNDERLYINGS,
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CHAT_ID
-)
+from config import UNDERLYINGS
 
 from upstox_client import UpstoxClient
 from strategy import generate_signal
+from option_selector import select_option
+from risk_manager import calculate_trade
+from telegram_bot import send_message, format_signal
+from trade_manager import signal_exists, record_signal
 
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s"
 )
-
-IST = ZoneInfo("Asia/Kolkata")
 
 
 def market_is_open():
@@ -32,121 +31,89 @@ def market_is_open():
     )
 
 
-def send_telegram(message):
-
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.warning("Telegram configuration missing")
-        return
-
-    response = requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message
-        },
-        timeout=15
-    )
-
-    response.raise_for_status()
-
-
-def format_signal(signal):
-
-    return f"""
-📊 OPTIONS TRADING SIGNAL
-
-Index: {signal['symbol']}
-Direction: {signal['side']}
-
-Time: {signal['timestamp']}
-
-Strike: {signal['strike']}
-Expiry: {signal['expiry']}
-
-Option LTP: ₹{signal['ltp']}
-
-Entry: ₹{signal['entry']}
-Stop Loss: ₹{signal['stop_loss']}
-
-Target 1: ₹{signal['target_1']}
-Target 2: ₹{signal['target_2']}
-
-Spot: {signal['spot']}
-RSI: {signal['rsi']:.2f}
-
-Signal Score: {signal['score']}/5
-
-Spread: {signal['spread']:.2f}%
-
-MODE: PAPER SIGNAL ONLY
-
-No order has been placed.
-"""
-
-
 def main():
 
     if not market_is_open():
-
         logging.info("Market is closed")
         return
 
     client = UpstoxClient()
 
-    for name, key in UNDERLYINGS.items():
+    for name, instrument_key in UNDERLYINGS.items():
 
         try:
 
             logging.info("Scanning %s", name)
 
-            candles5 = client.intraday_candles(key, 5)
-
-            candles15 = client.intraday_candles(key, 15)
-
-            # Automatically select expiry for each index
-            expiry = client.get_nearest_expiry(key)
-
-            logging.info(
-                "%s selected expiry: %s",
-                name,
-                expiry
+            candles5 = client.intraday_candles(
+                instrument_key, 5
             )
 
-            chain = client.option_chain(
-                key,
-                expiry
+            candles15 = client.intraday_candles(
+                instrument_key, 15
             )
 
             signal = generate_signal(
                 name,
                 candles5,
-                candles15,
-                chain
+                candles15
             )
 
-            if signal:
+            if not signal:
+                logging.info("%s: NO TRADE", name)
+                continue
 
-                message = format_signal(signal)
+            expiry = client.get_nearest_expiry(
+                instrument_key
+            )
 
-                logging.info(message)
+            chain = client.option_chain(
+                instrument_key,
+                expiry
+            )
 
-                send_telegram(message)
+            option = select_option(
+                chain,
+                signal["side"]
+            )
 
-            else:
+            if not option:
+                logging.info("%s: No liquid option found", name)
+                continue
 
-                logging.info(
-                    "%s: No qualifying signal",
-                    name
-                )
+            trade = calculate_trade(option)
+
+            if not trade:
+                continue
+
+            final_signal = {
+                **signal,
+                **trade,
+                "expiry": expiry
+            }
+
+            if signal_exists(
+                trade["instrument_key"],
+                signal["timestamp"]
+            ):
+                logging.info("Duplicate signal ignored")
+                continue
+
+            message = format_signal(final_signal)
+
+            logging.info(message)
+
+            send_message(message)
+
+            record_signal(final_signal)
 
         except Exception:
 
             logging.exception(
-                "Error scanning %s",
+                "Failed scanning %s",
                 name
             )
 
 
 if __name__ == "__main__":
     main()
-    
