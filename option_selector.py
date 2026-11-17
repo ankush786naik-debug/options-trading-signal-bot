@@ -1,7 +1,28 @@
+
 from config import MAX_SPREAD_PCT
 
 
+def safe_float(value, default=0.0):
+
+    try:
+        number = float(value)
+
+        if number != number:
+            return default
+
+        return number
+
+    except (TypeError, ValueError):
+        return default
+
+
 def select_option(chain, side):
+
+    if side not in ("CALL", "PUT"):
+        raise ValueError("Side must be CALL or PUT")
+
+    if not isinstance(chain, list):
+        return None
 
     field = (
         "call_options"
@@ -13,27 +34,59 @@ def select_option(chain, side):
 
     for row in chain:
 
+        if not isinstance(row, dict):
+            continue
+
         option = row.get(field) or {}
+
+        if not isinstance(option, dict):
+            continue
+
         market = option.get("market_data") or {}
 
-        ltp = float(market.get("ltp") or 0)
-        bid = float(market.get("bid_price") or 0)
-        ask = float(market.get("ask_price") or 0)
-        volume = float(market.get("volume") or 0)
+        if not isinstance(market, dict):
+            continue
 
-        spot = float(
-            row.get("underlying_spot_price") or 0
+        instrument_key = option.get("instrument_key")
+
+        if not instrument_key:
+            continue
+
+        ltp = safe_float(market.get("ltp"))
+        bid = safe_float(market.get("bid_price"))
+        ask = safe_float(market.get("ask_price"))
+        volume = safe_float(market.get("volume"))
+        oi = safe_float(market.get("oi"))
+
+        spot = safe_float(
+            row.get("underlying_spot_price")
         )
 
-        strike = float(row.get("strike_price") or 0)
+        strike = safe_float(
+            row.get("strike_price")
+        )
 
+        # Reject invalid or missing prices.
         if min(ltp, bid, ask, spot, strike) <= 0:
             continue
 
+        # Reject invalid bid/ask prices.
         if ask < bid:
             continue
 
-        spread = ((ask - bid) / ltp) * 100
+        # Reject options without trading activity.
+        if volume <= 0:
+            continue
+
+        # Calculate spread against mid-price.
+        mid_price = (bid + ask) / 2
+
+        if mid_price <= 0:
+            continue
+
+        spread = (
+            (ask - bid) / mid_price
+        ) * 100
 
         if spread > MAX_SPREAD_PCT:
             continue
@@ -41,13 +94,13 @@ def select_option(chain, side):
         candidates.append({
             "strike": strike,
             "expiry": row.get("expiry"),
-            "instrument_key": option.get("instrument_key"),
+            "instrument_key": instrument_key,
             "spot": spot,
             "ltp": ltp,
             "bid": bid,
             "ask": ask,
             "volume": volume,
-            "oi": float(market.get("oi") or 0),
+            "oi": oi,
             "spread": spread,
             "distance": abs(strike - spot)
         })
@@ -55,13 +108,15 @@ def select_option(chain, side):
     if not candidates:
         return None
 
-    # Prefer the closest strike; use volume and spread as tie-breakers.
+    # Rank by strike proximity, then liquidity and spread.
     candidates.sort(
         key=lambda x: (
             x["distance"],
             -x["volume"],
+            -x["oi"],
             x["spread"]
         )
     )
 
     return candidates[0]
+    
