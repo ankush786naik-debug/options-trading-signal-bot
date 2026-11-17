@@ -1,49 +1,66 @@
+# Indian Options Trading Signal Bot
 
-# Options Trading Signal Bot
+Python-based Indian index options buying analysis system.
 
-An Indian index options signal scanner powered by Upstox.
-
-## Supported indices
+## Supported Indices
 
 - NIFTY
 - BANKNIFTY
 - SENSEX
 
+## Data Provider
+
+Upstox Analytics API.
+
+## Analysis Timeframes
+
+- 5-minute candles
+- 15-minute candles
+
+## Indicators
+
+- EMA 9, 21, 50
+- RSI 14
+- MACD
+- VWAP
+- ADX
+- ATR
+- Supertrend
+- Volume
+
 ## Features
 
-- Upstox market data
-- 5-minute analysis
-- 15-minute trend confirmation
-- EMA 9 and EMA 21
-- RSI 14
-- CALL and PUT signals
-- Option strike selection
-- Entry, stop loss and targets
-- Telegram alerts
-- GitHub Actions automation
-
-## Required GitHub Secrets
-
-UPSTOX_ANALYTICS_TOKEN
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
-OPTION_EXPIRY
-
-OPTION_EXPIRY must contain an actual valid expiry date.
+- CALL and PUT candidate signals
+- Automatic ATM strike selection
+- Option-chain analysis
+- Entry, stop-loss and targets
+- Telegram integration
+- Duplicate signal protection
+- Signal history
 
 ## Installation
 
 pip install -r requirements.txt
 
-## Run
+## Environment Variables
+
+UPSTOX_ANALYTICS_TOKEN
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+ALERTS_ENABLED
+
+## Run API Test
+
+python test_upstox.py
+
+## Run Scanner
 
 python main.py
 
 ## Safety
 
-This application generates signals only.
+The application is for analysis and paper trading.
 
-It does not place live trades.
+It does not place live orders.
 
-Backtest and paper trade before using any
-signal for actual trading.
+Signals are not guaranteed to be profitable.
