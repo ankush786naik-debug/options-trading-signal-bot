@@ -1,9 +1,14 @@
+
 import logging
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from config import UNDERLYINGS
+from config import (
+    UNDERLYINGS,
+    validate_config,
+    LOG_LEVEL
+)
 
 from upstox_client import UpstoxClient
 from strategy import generate_signal
@@ -16,7 +21,7 @@ from trade_manager import signal_exists, record_signal
 IST = ZoneInfo("Asia/Kolkata")
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s %(levelname)s %(message)s"
 )
 
@@ -31,7 +36,166 @@ def market_is_open():
     )
 
 
+def get_completed_candles(candles, interval):
+
+    if not candles:
+        return []
+
+    now = datetime.now(IST)
+
+    completed = []
+
+    for candle in candles:
+
+        try:
+            candle_time = datetime.fromisoformat(
+                str(candle[0]).replace("Z", "+00:00")
+            )
+
+            if candle_time.tzinfo is None:
+                candle_time = candle_time.replace(tzinfo=IST)
+
+            candle_time = candle_time.astimezone(IST)
+
+            candle_end = candle_time + timedelta(
+                minutes=interval
+            )
+
+            if candle_end <= now:
+                completed.append(candle)
+
+        except (ValueError, TypeError, IndexError):
+            logging.warning("Skipping invalid candle timestamp")
+
+    return completed
+
+
+def candle_data_is_fresh(candles, interval):
+
+    if not candles:
+        return False
+
+    try:
+        latest_time = datetime.fromisoformat(
+            str(candles[-1][0]).replace("Z", "+00:00")
+        )
+
+        if latest_time.tzinfo is None:
+            latest_time = latest_time.replace(tzinfo=IST)
+
+        latest_time = latest_time.astimezone(IST)
+
+        now = datetime.now(IST)
+
+        age = now - (
+            latest_time + timedelta(minutes=interval)
+        )
+
+        return age <= timedelta(minutes=interval * 2)
+
+    except (ValueError, TypeError, IndexError):
+        return False
+
+
+def scan_underlying(client, name, instrument_key):
+
+    logging.info("Scanning %s", name)
+
+    candles5 = client.intraday_candles(
+        instrument_key, 5
+    )
+
+    candles15 = client.intraday_candles(
+        instrument_key, 15
+    )
+
+    candles5 = get_completed_candles(candles5, 5)
+    candles15 = get_completed_candles(candles15, 15)
+
+    if len(candles5) < 50 or len(candles15) < 50:
+        logging.warning(
+            "%s: Insufficient completed candles. 5m=%s, 15m=%s",
+            name,
+            len(candles5),
+            len(candles15)
+        )
+        return
+
+    if not candle_data_is_fresh(candles5, 5):
+        logging.warning("%s: 5-minute data is stale", name)
+        return
+
+    if not candle_data_is_fresh(candles15, 15):
+        logging.warning("%s: 15-minute data is stale", name)
+        return
+
+    signal = generate_signal(
+        name,
+        candles5,
+        candles15
+    )
+
+    if not signal:
+        logging.info("%s: NO TRADE", name)
+        return
+
+    expiry = client.get_nearest_expiry(
+        instrument_key
+    )
+
+    chain = client.option_chain(
+        instrument_key,
+        expiry
+    )
+
+    option = select_option(
+        chain,
+        signal["side"]
+    )
+
+    if not option:
+        logging.info("%s: No liquid option found", name)
+        return
+
+    trade = calculate_trade(option)
+
+    if not trade:
+        logging.info("%s: Invalid option premium", name)
+        return
+
+    final_signal = {
+        **signal,
+        **trade,
+        "expiry": expiry
+    }
+
+    if signal_exists(
+        trade["instrument_key"],
+        signal["timestamp"]
+    ):
+        logging.info("%s: Duplicate signal ignored", name)
+        return
+
+    message = format_signal(final_signal)
+
+    logging.info(message)
+
+    # Record only after successful Telegram delivery.
+    delivered = send_message(message)
+
+    if delivered:
+        record_signal(final_signal)
+        logging.info("%s: Signal sent and recorded", name)
+    else:
+        logging.info(
+            "%s: Telegram disabled; signal not recorded",
+            name
+        )
+
+
 def main():
+
+    validate_config()
 
     if not market_is_open():
         logging.info("Market is closed")
@@ -42,73 +206,13 @@ def main():
     for name, instrument_key in UNDERLYINGS.items():
 
         try:
-
-            logging.info("Scanning %s", name)
-
-            candles5 = client.intraday_candles(
-                instrument_key, 5
-            )
-
-            candles15 = client.intraday_candles(
-                instrument_key, 15
-            )
-
-            signal = generate_signal(
+            scan_underlying(
+                client,
                 name,
-                candles5,
-                candles15
-            )
-
-            if not signal:
-                logging.info("%s: NO TRADE", name)
-                continue
-
-            expiry = client.get_nearest_expiry(
                 instrument_key
             )
 
-            chain = client.option_chain(
-                instrument_key,
-                expiry
-            )
-
-            option = select_option(
-                chain,
-                signal["side"]
-            )
-
-            if not option:
-                logging.info("%s: No liquid option found", name)
-                continue
-
-            trade = calculate_trade(option)
-
-            if not trade:
-                continue
-
-            final_signal = {
-                **signal,
-                **trade,
-                "expiry": expiry
-            }
-
-            if signal_exists(
-                trade["instrument_key"],
-                signal["timestamp"]
-            ):
-                logging.info("Duplicate signal ignored")
-                continue
-
-            message = format_signal(final_signal)
-
-            logging.info(message)
-
-            send_message(message)
-
-            record_signal(final_signal)
-
         except Exception:
-
             logging.exception(
                 "Failed scanning %s",
                 name
