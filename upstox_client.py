@@ -1,4 +1,7 @@
+
 import requests
+from datetime import date
+
 from config import UPSTOX_BASE_URL, UPSTOX_TOKEN
 
 
@@ -7,9 +10,7 @@ class UpstoxClient:
     def __init__(self):
 
         if not UPSTOX_TOKEN:
-            raise RuntimeError(
-                "Missing UPSTOX_ANALYTICS_TOKEN"
-            )
+            raise RuntimeError("Missing Upstox token")
 
         self.session = requests.Session()
 
@@ -25,12 +26,6 @@ class UpstoxClient:
             params=params,
             timeout=20
         )
-
-        if response.status_code == 401:
-            raise RuntimeError("Invalid or expired Upstox token")
-
-        if response.status_code == 429:
-            raise RuntimeError("Upstox API rate limit reached")
 
         response.raise_for_status()
 
@@ -50,6 +45,37 @@ class UpstoxClient:
 
         return data.get("candles", [])
 
+    def get_expiries(self, instrument_key):
+
+        data = self.get(
+            "/v2/option/contract",
+            {
+                "instrument_key": instrument_key
+            }
+        )
+
+        contracts = data if isinstance(data, list) else []
+
+        expiries = sorted({
+            item.get("expiry")
+            for item in contracts
+            if item.get("expiry")
+            and item.get("expiry") >= date.today().isoformat()
+        })
+
+        if not expiries:
+            raise RuntimeError(
+                f"No valid expiries found for {instrument_key}"
+            )
+
+        return expiries
+
+    def get_nearest_expiry(self, instrument_key):
+
+        expiries = self.get_expiries(instrument_key)
+
+        return expiries[0]
+
     def option_chain(self, instrument_key, expiry):
 
         data = self.get(
@@ -61,4 +87,4 @@ class UpstoxClient:
         )
 
         return data if isinstance(data, list) else data.get("data", [])
-      
+        
