@@ -109,10 +109,17 @@ def main():
 
             candles15 = client.intraday_candles(key, 15)
 
-            chain = client.option_chain(
-                key,
-                OPTION_EXPIRY
+            expiry = client.get_nearest_expiry(key)
+            logging.info(
+                "%s selected expiry: %s",
+                name,
+                expiry
             )
+
+chain = client.option_chain(
+    key,
+    expiry
+)
 
             signal = generate_signal(
                 name,
