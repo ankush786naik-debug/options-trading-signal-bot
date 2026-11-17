@@ -3,61 +3,39 @@ import logging
 from config import UNDERLYINGS
 from upstox_client import UpstoxClient
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
+logging.basicConfig(level=logging.INFO)
 
 
 def main():
 
     client = UpstoxClient()
 
-    print("\n========== UPSTOX API TEST ==========\n")
+    for name, key in UNDERLYINGS.items():
 
-    for name, instrument_key in UNDERLYINGS.items():
-
-        print(f"\nTesting: {name}")
-        print(f"Instrument: {instrument_key}")
+        print(f"\nTesting {name}")
 
         try:
 
-            expiries = client.get_expiries(
-                instrument_key
-            )
+            candles5 = client.intraday_candles(key, 5)
+            candles15 = client.intraday_candles(key, 15)
 
-            print("Expiry API: SUCCESS")
+            print("5-minute candles:", len(candles5))
+            print("15-minute candles:", len(candles15))
 
-            print("Available expiries:")
+            expiry = client.get_nearest_expiry(key)
 
-            for expiry in expiries:
-                print(f"  - {expiry}")
+            print("Nearest expiry:", expiry)
 
-            nearest = client.get_nearest_expiry(
-                instrument_key
-            )
+            chain = client.option_chain(key, expiry)
 
-            print(f"Nearest expiry: {nearest}")
+            print("Option chain records:", len(chain))
 
-            chain = client.option_chain(
-                instrument_key,
-                nearest
-            )
-
-            print(f"Option chain records: {len(chain)}")
-
-            if chain:
-                print("Option chain: SUCCESS")
-            else:
-                print("WARNING: Empty option chain")
+            print("SUCCESS")
 
         except Exception as error:
 
-            print(f"FAILED: {error}")
-
-    print("\n========== TEST COMPLETED ==========\n")
+            print("FAILED:", error)
 
 
 if __name__ == "__main__":
     main()
-  
