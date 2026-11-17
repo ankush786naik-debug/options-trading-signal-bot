@@ -1,0 +1,20 @@
+import os
+
+UPSTOX_BASE_URL = "https://api.upstox.com"
+
+UPSTOX_TOKEN = os.getenv("UPSTOX_ANALYTICS_TOKEN", "")
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+UNDERLYINGS = {
+    "NIFTY": "NSE_INDEX|Nifty 50",
+    "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+    "SENSEX": "BSE_INDEX|SENSEX",
+}
+
+OPTION_EXPIRY = os.getenv("OPTION_EXPIRY", "")
+
+MIN_SIGNAL_SCORE = 4
+
+MAX_SPREAD_PCT = 2.0
