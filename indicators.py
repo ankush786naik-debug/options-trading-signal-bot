@@ -189,7 +189,6 @@ def calculate_indicators(candles):
     ).mean()
 
     
-    
     # Supertrend 10, multiplier 3
     multiplier = 3.0
 
@@ -270,6 +269,8 @@ def calculate_indicators(candles):
     df["supertrend"] = supertrend
     df["supertrend_direction"] = direction
     
+    
+        
 
     return df
     
