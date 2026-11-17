@@ -1,3 +1,4 @@
+
 import requests
 
 from config import (
@@ -7,6 +8,10 @@ from config import (
 )
 
 
+TELEGRAM_API = "https://api.telegram.org"
+MAX_MESSAGE_LENGTH = 4000
+
+
 def send_message(message):
 
     if not ALERTS_ENABLED:
@@ -14,28 +19,96 @@ def send_message(message):
         return False
 
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        raise RuntimeError("Telegram credentials missing")
+        raise RuntimeError(
+            "Telegram credentials missing"
+        )
+
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("Telegram message cannot be empty")
+
+    if len(message) > MAX_MESSAGE_LENGTH:
+        message = message[:MAX_MESSAGE_LENGTH - 20]
+        message += "\n\n[Message truncated]"
 
     url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        f"{TELEGRAM_API}/bot"
+        f"{TELEGRAM_BOT_TOKEN}/sendMessage"
     )
 
-    response = requests.post(
-        url,
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message
-        },
-        timeout=20
-    )
+    try:
+        response = requests.post(
+            url,
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message
+            },
+            timeout=(10, 20)
+        )
 
-    response.raise_for_status()
+        response.raise_for_status()
+
+        result = response.json()
+
+    except requests.exceptions.Timeout as error:
+        raise RuntimeError(
+            "Telegram request timed out"
+        ) from error
+
+    except requests.exceptions.RequestException as error:
+        raise RuntimeError(
+            f"Telegram delivery failed: {error}"
+        ) from error
+
+    except ValueError as error:
+        raise RuntimeError(
+            "Telegram returned invalid JSON"
+        ) from error
+
+    if not result.get("ok"):
+        raise RuntimeError(
+            f"Telegram API error: {result}"
+        )
 
     return True
 
 
 def format_signal(signal):
+
+    required_fields = [
+        "symbol",
+        "side",
+        "strike",
+        "expiry",
+        "spot",
+        "entry",
+        "stop_loss",
+        "target_1",
+        "target_2",
+        "score",
+        "rsi",
+        "adx",
+        "vwap",
+        "spread",
+        "reasons"
+    ]
+
+    missing = [
+        field for field in required_fields
+        if field not in signal
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Missing signal fields: {', '.join(missing)}"
+        )
+
+    if signal["side"] not in ("CALL", "PUT"):
+        raise ValueError("Invalid signal direction")
+
+    reasons = signal["reasons"]
+
+    if not isinstance(reasons, list):
+        raise ValueError("Signal reasons must be a list")
 
     return f"""
 🚨 OPTIONS BUYING SIGNAL
@@ -46,28 +119,28 @@ Direction: BUY {signal['side']}
 Strike: {signal['strike']}
 Expiry: {signal['expiry']}
 
-Spot: ₹{signal['spot']}
+Spot: ₹{float(signal['spot']):.2f}
 
-Entry above: ₹{signal['entry']}
-Stop Loss: ₹{signal['stop_loss']}
+Entry above: ₹{float(signal['entry']):.2f}
+Stop Loss: ₹{float(signal['stop_loss']):.2f}
 
-Target 1: ₹{signal['target_1']}
-Target 2: ₹{signal['target_2']}
+Target 1: ₹{float(signal['target_1']):.2f}
+Target 2: ₹{float(signal['target_2']):.2f}
 
-Confidence score: {signal['score']}/100
+Strategy score: {signal['score']}/100
 
-RSI: {signal['rsi']:.2f}
-ADX: {signal['adx']:.2f}
+RSI: {float(signal['rsi']):.2f}
+ADX: {float(signal['adx']):.2f}
+VWAP: {float(signal['vwap']):.2f}
 
-VWAP: {signal['vwap']:.2f}
-
-Spread: {signal['spread']:.2f}%
+Spread: {float(signal['spread']):.2f}%
 
 Reasons:
-{chr(10).join(signal['reasons'])}
+{chr(10).join(str(reason) for reason in reasons)}
 
 MODE: PAPER TRADING ONLY
 
 Wait for entry confirmation.
 No live order placed.
 """
+    
