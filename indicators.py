@@ -188,76 +188,79 @@ def calculate_indicators(candles):
         min_periods=20
     ).mean()
 
+    
     # Supertrend 10, multiplier 3
     multiplier = 3.0
 
-    basic_upper = (
-        (high + low) / 2
-    ) + multiplier * df["atr"]
+    atr = df["atr"]
+    midpoint = (high + low) / 2
 
-    basic_lower = (
-        (high + low) / 2
-    ) - multiplier * df["atr"]
+    basic_upper = midpoint + multiplier * atr
+    basic_lower = midpoint - multiplier * atr
 
-    final_upper = basic_upper.copy()
-    final_lower = basic_lower.copy()
+    final_upper = pd.Series(np.nan, index=df.index, dtype="float64")
+    final_lower = pd.Series(np.nan, index=df.index, dtype="float64")
 
-    direction = pd.Series(
-        1,
-        index=df.index,
-        dtype="int64"
-    )
+    direction = pd.Series(1, index=df.index, dtype="int64")
+    supertrend = pd.Series(np.nan, index=df.index, dtype="float64")
 
-    supertrend = pd.Series(
-        np.nan,
-        index=df.index,
-        dtype="float64"
-    )
+    valid_positions = np.flatnonzero(atr.notna().to_numpy())
 
-    for i in range(1, len(df)):
+    if len(valid_positions) > 0:
+        first = valid_positions[0]
 
-        if pd.isna(df["atr"].iloc[i]):
-            continue
+        final_upper.iloc[first] = basic_upper.iloc[first]
+        final_lower.iloc[first] = basic_lower.iloc[first]
 
-        previous_upper = final_upper.iloc[i - 1]
-        previous_lower = final_lower.iloc[i - 1]
+        supertrend.iloc[first] = basic_upper.iloc[first]
+        direction.iloc[first] = -1
 
-        if (
-            basic_upper.iloc[i] < previous_upper
-            or close.iloc[i - 1] > previous_upper
-        ):
-            final_upper.iloc[i] = basic_upper.iloc[i]
-        else:
-            final_upper.iloc[i] = previous_upper
+        for i in range(first + 1, len(df)):
+            previous_upper = final_upper.iloc[i - 1]
+            previous_lower = final_lower.iloc[i - 1]
+            previous_close = close.iloc[i - 1]
 
-        if (
-            basic_lower.iloc[i] > previous_lower
-            or close.iloc[i - 1] < previous_lower
-        ):
-            final_lower.iloc[i] = basic_lower.iloc[i]
-        else:
-            final_lower.iloc[i] = previous_lower
+            if pd.isna(atr.iloc[i]):
+                continue
 
-        previous_direction = direction.iloc[i - 1]
+            current_basic_upper = basic_upper.iloc[i]
+            current_basic_lower = basic_lower.iloc[i]
 
-        if previous_direction == -1:
-            if close.iloc[i] > final_upper.iloc[i]:
-                direction.iloc[i] = 1
+            if (
+                current_basic_upper < previous_upper
+                or previous_close > previous_upper
+            ):
+                final_upper.iloc[i] = current_basic_upper
             else:
-                direction.iloc[i] = -1
-        else:
-            if close.iloc[i] < final_lower.iloc[i]:
-                direction.iloc[i] = -1
-            else:
-                direction.iloc[i] = 1
+                final_upper.iloc[i] = previous_upper
 
-        if direction.iloc[i] == 1:
-            supertrend.iloc[i] = final_lower.iloc[i]
-        else:
-            supertrend.iloc[i] = final_upper.iloc[i]
+            if (
+                current_basic_lower > previous_lower
+                or previous_close < previous_lower
+            ):
+                final_lower.iloc[i] = current_basic_lower
+            else:
+                final_lower.iloc[i] = previous_lower
+
+            if direction.iloc[i - 1] == -1:
+                if close.iloc[i] > final_upper.iloc[i]:
+                    direction.iloc[i] = 1
+                else:
+                    direction.iloc[i] = -1
+            else:
+                if close.iloc[i] < final_lower.iloc[i]:
+                    direction.iloc[i] = -1
+                else:
+                    direction.iloc[i] = 1
+
+            if direction.iloc[i] == 1:
+                supertrend.iloc[i] = final_lower.iloc[i]
+            else:
+                supertrend.iloc[i] = final_upper.iloc[i]
 
     df["supertrend"] = supertrend
     df["supertrend_direction"] = direction
+
 
     return df
     
