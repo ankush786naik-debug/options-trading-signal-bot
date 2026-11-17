@@ -1,0 +1,139 @@
+import unittest
+from unittest.mock import patch
+
+import pandas as pd
+
+from indicators import calculate_indicators
+from option_selector import select_option
+from risk_manager import calculate_trade, entry_activated
+from strategy import generate_signal
+
+
+def make_candles(count=100, interval=5):
+    candles = []
+
+    start = pd.Timestamp("2026-11-17 09:15:00")
+
+    for i in range(count):
+        price = 25000 + i * 5
+
+        timestamp = (
+            start + pd.Timedelta(minutes=i * interval)
+        ).isoformat()
+
+        candles.append([
+            timestamp,
+            price - 2,
+            price + 5,
+            price - 5,
+            price,
+            1000 + i * 10,
+            0
+        ])
+
+    return candles
+
+
+class TestScanner(unittest.TestCase):
+
+    def test_indicator_calculation(self):
+        candles = make_candles()
+
+        result = calculate_indicators(candles)
+
+        self.assertIsNotNone(result)
+
+        for column in [
+            "ema9", "ema21", "ema50",
+            "rsi", "macd", "atr",
+            "adx", "vwap", "supertrend"
+        ]:
+            self.assertIn(column, result.columns)
+
+        self.assertTrue(
+            pd.notna(result.iloc[-1]["supertrend"])
+        )
+
+    def test_option_selection(self):
+        chain = [{
+            "call_options": {
+                "instrument_key": "TEST_CALL",
+                "market_data": {
+                    "ltp": 100,
+                    "bid_price": 99,
+                    "ask_price": 100,
+                    "volume": 1000,
+                    "oi": 5000
+                }
+            },
+            "put_options": {},
+            "underlying_spot_price": 25000,
+            "strike_price": 25000,
+            "expiry": "2026-11-26"
+        }]
+
+        result = select_option(chain, "CALL")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(
+            result["instrument_key"],
+            "TEST_CALL"
+        )
+
+    def test_option_rejects_wide_spread(self):
+        chain = [{
+            "call_options": {
+                "instrument_key": "TEST_CALL",
+                "market_data": {
+                    "ltp": 100,
+                    "bid_price": 90,
+                    "ask_price": 110,
+                    "volume": 1000,
+                    "oi": 5000
+                }
+            },
+            "underlying_spot_price": 25000,
+            "strike_price": 25000
+        }]
+
+        self.assertIsNone(select_option(chain, "CALL"))
+
+    def test_risk_calculation(self):
+        option = {
+            "ask": 100,
+            "instrument_key": "TEST_CALL"
+        }
+
+        trade = calculate_trade(option)
+
+        self.assertEqual(trade["entry"], 100)
+        self.assertEqual(trade["stop_loss"], 80)
+        self.assertEqual(trade["target_1"], 120)
+        self.assertEqual(trade["target_2"], 135)
+
+    def test_entry_activation(self):
+        option = {"entry": 100}
+
+        self.assertTrue(entry_activated(option, 101))
+        self.assertTrue(entry_activated(option, 100))
+        self.assertFalse(entry_activated(option, 99))
+
+    def test_strategy_handles_valid_candles(self):
+        candles5 = make_candles(100, 5)
+        candles15 = make_candles(100, 15)
+
+        result = generate_signal(
+            "NIFTY",
+            candles5,
+            candles15
+        )
+
+        # A valid result may be either a signal or NO TRADE.
+        self.assertTrue(
+            result is None or result["side"] in ("CALL", "PUT")
+        )
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
+  
