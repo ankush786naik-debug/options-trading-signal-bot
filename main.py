@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from config import (
     UNDERLYINGS,
-    OPTION_EXPIRY,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID
 )
@@ -92,11 +91,6 @@ def main():
         logging.info("Market is closed")
         return
 
-    if not OPTION_EXPIRY:
-        raise RuntimeError(
-            "OPTION_EXPIRY must be set to a valid expiry date"
-        )
-
     client = UpstoxClient()
 
     for name, key in UNDERLYINGS.items():
@@ -109,17 +103,19 @@ def main():
 
             candles15 = client.intraday_candles(key, 15)
 
+            # Automatically select expiry for each index
             expiry = client.get_nearest_expiry(key)
+
             logging.info(
                 "%s selected expiry: %s",
                 name,
                 expiry
             )
 
-chain = client.option_chain(
-    key,
-    expiry
-)
+            chain = client.option_chain(
+                key,
+                expiry
+            )
 
             signal = generate_signal(
                 name,
@@ -153,4 +149,4 @@ chain = client.option_chain(
 
 if __name__ == "__main__":
     main()
-  
+    
