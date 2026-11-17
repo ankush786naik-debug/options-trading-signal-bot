@@ -1,3 +1,4 @@
+
 import os
 
 UPSTOX_BASE_URL = "https://api.upstox.com"
@@ -12,8 +13,6 @@ UNDERLYINGS = {
     "BANKNIFTY": "NSE_INDEX|Nifty Bank",
     "SENSEX": "BSE_INDEX|SENSEX",
 }
-
-OPTION_EXPIRY = os.getenv("OPTION_EXPIRY", "")
 
 MIN_SIGNAL_SCORE = 4
 
