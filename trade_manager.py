@@ -1,47 +1,112 @@
+
 import json
 import os
+import logging
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
 
 STATE_FILE = "trade_state.json"
+MAX_RECORDS = 500
+
+
+def empty_state():
+    return {"signals": []}
 
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
-        return {"signals": []}
+        return empty_state()
 
     try:
-        with open(STATE_FILE, "r") as file:
-            return json.load(file)
-    except (json.JSONDecodeError, OSError):
-        return {"signals": []}
+        with open(STATE_FILE, "r", encoding="utf-8") as file:
+            state = json.load(file)
+
+        if not isinstance(state, dict):
+            raise ValueError("State must be a JSON object")
+
+        if not isinstance(state.get("signals"), list):
+            raise ValueError("Signals must be a list")
+
+        return state
+
+    except (json.JSONDecodeError, OSError, ValueError) as error:
+        logging.error("Unable to read trade state: %s", error)
+        raise RuntimeError(
+            "Trade state file is invalid. Refusing to reset signal history."
+        ) from error
 
 
 def save_state(state):
 
+    if not isinstance(state, dict):
+        raise ValueError("Invalid state object")
+
+    if not isinstance(state.get("signals"), list):
+        raise ValueError("Invalid signals list")
+
     temporary = STATE_FILE + ".tmp"
 
-    with open(temporary, "w") as file:
-        json.dump(state, file, indent=2)
+    try:
+        with open(temporary, "w", encoding="utf-8") as file:
+            json.dump(state, file, indent=2)
 
-    os.replace(temporary, STATE_FILE)
+        os.replace(temporary, STATE_FILE)
+
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
 
 
 def signal_exists(instrument_key, timestamp):
 
+    if not instrument_key or not timestamp:
+        raise ValueError("Instrument key and timestamp are required")
+
     state = load_state()
 
     return any(
-        item["instrument_key"] == instrument_key
-        and item["timestamp"] == timestamp
+        item.get("instrument_key") == instrument_key
+        and item.get("timestamp") == timestamp
         for item in state["signals"]
+        if isinstance(item, dict)
     )
 
 
 def record_signal(signal):
+
+    required = [
+        "symbol",
+        "side",
+        "instrument_key",
+        "strike",
+        "expiry",
+        "entry",
+        "stop_loss",
+        "target_1",
+        "target_2",
+        "timestamp"
+    ]
+
+    missing = [
+        field for field in required
+        if field not in signal
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Missing signal fields: {', '.join(missing)}"
+        )
+
+    if signal_exists(
+        signal["instrument_key"],
+        signal["timestamp"]
+    ):
+        logging.info("Duplicate signal not recorded")
+        return False
 
     state = load_state()
 
@@ -59,7 +124,9 @@ def record_signal(signal):
         "recorded_at": datetime.now(IST).isoformat()
     })
 
-    # Retain the most recent 500 records.
-    state["signals"] = state["signals"][-500:]
+    state["signals"] = state["signals"][-MAX_RECORDS:]
 
     save_state(state)
+
+    return True
+    
