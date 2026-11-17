@@ -189,6 +189,7 @@ def calculate_indicators(candles):
     ).mean()
 
     
+    
     # Supertrend 10, multiplier 3
     multiplier = 3.0
 
@@ -198,13 +199,23 @@ def calculate_indicators(candles):
     basic_upper = midpoint + multiplier * atr
     basic_lower = midpoint - multiplier * atr
 
-    final_upper = pd.Series(np.nan, index=df.index, dtype="float64")
-    final_lower = pd.Series(np.nan, index=df.index, dtype="float64")
+    final_upper = pd.Series(
+        np.nan, index=df.index, dtype="float64"
+    )
+    final_lower = pd.Series(
+        np.nan, index=df.index, dtype="float64"
+    )
 
-    direction = pd.Series(1, index=df.index, dtype="int64")
-    supertrend = pd.Series(np.nan, index=df.index, dtype="float64")
+    direction = pd.Series(
+        1, index=df.index, dtype="int64"
+    )
+    supertrend = pd.Series(
+        np.nan, index=df.index, dtype="float64"
+    )
 
-    valid_positions = np.flatnonzero(atr.notna().to_numpy())
+    valid_positions = np.flatnonzero(
+        atr.notna().to_numpy()
+    )
 
     if len(valid_positions) > 0:
         first = valid_positions[0]
@@ -212,33 +223,31 @@ def calculate_indicators(candles):
         final_upper.iloc[first] = basic_upper.iloc[first]
         final_lower.iloc[first] = basic_lower.iloc[first]
 
-        supertrend.iloc[first] = basic_upper.iloc[first]
         direction.iloc[first] = -1
+        supertrend.iloc[first] = final_upper.iloc[first]
 
         for i in range(first + 1, len(df)):
-            previous_upper = final_upper.iloc[i - 1]
-            previous_lower = final_lower.iloc[i - 1]
-            previous_close = close.iloc[i - 1]
 
             if pd.isna(atr.iloc[i]):
                 continue
 
-            current_basic_upper = basic_upper.iloc[i]
-            current_basic_lower = basic_lower.iloc[i]
+            previous_upper = final_upper.iloc[i - 1]
+            previous_lower = final_lower.iloc[i - 1]
+            previous_close = close.iloc[i - 1]
 
             if (
-                current_basic_upper < previous_upper
+                basic_upper.iloc[i] < previous_upper
                 or previous_close > previous_upper
             ):
-                final_upper.iloc[i] = current_basic_upper
+                final_upper.iloc[i] = basic_upper.iloc[i]
             else:
                 final_upper.iloc[i] = previous_upper
 
             if (
-                current_basic_lower > previous_lower
+                basic_lower.iloc[i] > previous_lower
                 or previous_close < previous_lower
             ):
-                final_lower.iloc[i] = current_basic_lower
+                final_lower.iloc[i] = basic_lower.iloc[i]
             else:
                 final_lower.iloc[i] = previous_lower
 
@@ -260,7 +269,7 @@ def calculate_indicators(candles):
 
     df["supertrend"] = supertrend
     df["supertrend_direction"] = direction
-
+    
 
     return df
     
