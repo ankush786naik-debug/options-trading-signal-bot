@@ -1,7 +1,6 @@
-
 import requests
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from config import UPSTOX_BASE_URL, UPSTOX_TOKEN
@@ -74,7 +73,7 @@ class UpstoxClient:
             result = response.json()
         except ValueError as error:
             raise RuntimeError(
-                "Upstox returned an invalid JSON response."
+                "Upstox returned invalid JSON."
             ) from error
 
         if not isinstance(result, dict):
@@ -98,24 +97,110 @@ class UpstoxClient:
 
         key = quote(instrument_key, safe="")
 
-        data = self.get(
+        today = datetime.now(IST).date()
+
+        # Fetch the previous 7 calendar days.
+        from_date = (
+            today - timedelta(days=7)
+        ).isoformat()
+
+        to_date = (
+            today - timedelta(days=1)
+        ).isoformat()
+
+        historical_path = (
+            f"/v3/historical-candle/"
+            f"{key}/minutes/{interval}/"
+            f"{to_date}/{from_date}"
+        )
+
+        historical_data = self.get(historical_path)
+
+        if not isinstance(historical_data, dict):
+            raise RuntimeError(
+                "Invalid historical candle response."
+            )
+
+        historical_candles = (
+            historical_data.get("candles", [])
+        )
+
+        if not isinstance(historical_candles, list):
+            raise RuntimeError(
+                "Invalid historical candle list."
+            )
+
+        # Fetch today's intraday candles.
+        intraday_path = (
             f"/v3/historical-candle/intraday/"
             f"{key}/minutes/{interval}"
         )
 
-        if not isinstance(data, dict):
+        intraday_data = self.get(intraday_path)
+
+        if not isinstance(intraday_data, dict):
             raise RuntimeError(
-                "Unexpected candle response from Upstox."
+                "Invalid intraday candle response."
             )
 
-        candles = data.get("candles", [])
+        today_candles = intraday_data.get(
+            "candles", []
+        )
 
-        if not isinstance(candles, list):
+        if not isinstance(today_candles, list):
             raise RuntimeError(
-                "Invalid candle data received from Upstox."
+                "Invalid intraday candle list."
             )
 
-        return candles
+        # Combine historical and today's candles.
+        combined = (
+            historical_candles + today_candles
+        )
+
+        # Validate records and remove duplicate timestamps.
+        unique_candles = {}
+
+        for candle in combined:
+
+            if (
+                not isinstance(candle, list)
+                or len(candle) < 6
+            ):
+                continue
+
+            timestamp = candle[0]
+
+            if not isinstance(timestamp, str):
+                continue
+
+            try:
+                parsed_time = datetime.fromisoformat(
+                    timestamp
+                )
+            except ValueError:
+                continue
+
+            unique_candles[parsed_time] = candle
+
+        # Sort oldest to newest.
+        sorted_candles = [
+            unique_candles[timestamp]
+            for timestamp in sorted(unique_candles)
+        ]
+
+        if not sorted_candles:
+            raise RuntimeError(
+                f"No candles received for {instrument_key}"
+            )
+
+        print(
+            f"{instrument_key} {interval}m: "
+            f"{len(historical_candles)} historical + "
+            f"{len(today_candles)} intraday = "
+            f"{len(sorted_candles)} combined candles"
+        )
+
+        return sorted_candles
 
     def get_expiries(self, instrument_key):
 
@@ -181,4 +266,3 @@ class UpstoxClient:
             )
 
         return data
-        
