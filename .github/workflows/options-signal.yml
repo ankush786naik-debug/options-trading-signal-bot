@@ -41,6 +41,7 @@ jobs:
           key: trade-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             trade-state-
+          save-always: true
 
       - name: Initialize trade state
         run: |
