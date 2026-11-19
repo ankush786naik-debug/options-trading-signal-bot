@@ -1,12 +1,9 @@
-
 name: Options Signal Bot
 
 on:
   workflow_dispatch:
 
   schedule:
-    # Runs every 5 minutes on weekdays.
-    # GitHub Actions uses UTC.
     - cron: "*/5 3-10 * * 1-5"
 
 permissions:
@@ -37,6 +34,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Restore trade state
+        uses: actions/cache@v4
+        with:
+          path: trade_state.json
+          key: trade-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            trade-state-
+
+      - name: Initialize trade state
+        run: |
+          if [ ! -f trade_state.json ]; then
+            echo '{"signals": []}' > trade_state.json
+          fi
+
       - name: Run scanner
         env:
           UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
@@ -45,4 +56,3 @@ jobs:
           ALERTS_ENABLED: "false"
           LOG_LEVEL: INFO
         run: python main.py
-        
