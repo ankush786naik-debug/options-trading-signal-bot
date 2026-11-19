@@ -1,3 +1,4 @@
+
 name: Options Signal Bot
 
 on:
@@ -34,12 +35,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-            - name: Save trade state
-        if: always()
-        uses: actions/cache/save@v4
+      - name: Restore trade state
+        uses: actions/cache/restore@v4
         with:
           path: trade_state.json
           key: trade-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            trade-state-
 
       - name: Initialize trade state
         run: |
@@ -55,3 +57,11 @@ jobs:
           ALERTS_ENABLED: "false"
           LOG_LEVEL: INFO
         run: python main.py
+
+      - name: Save trade state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: trade_state.json
+          key: trade-state-${{ github.run_id }}-${{ github.run_attempt }}
+          
