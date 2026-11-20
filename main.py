@@ -209,41 +209,24 @@ def scan_underlying(client, name, instrument_key):
 
 
 def main():
-
     validate_config()
 
     client = UpstoxClient()
+    scan_interval = 60
 
     logging.info("OPTIONS TRADING SIGNAL BOT STARTED")
+    logging.info("Monitoring NIFTY, BANKNIFTY and SENSEX")
 
-    try:
-
-        while True:
-
-            now = datetime.now(IST)
-
-            # Stop on weekends.
-            if now.weekday() >= 5:
-                logging.info("Weekend. Scanner stopped.")
-                break
-
-            # Stop after market closing.
-            if now.time() > time(15, 30):
-                logging.info("Market closed. Scanner stopped.")
-                break
-
-            # Wait until market opens.
-            if now.time() < time(9, 15):
-                logging.info("Waiting for market to open.")
-                sleep(30)
+    while True:
+        try:
+            if not market_is_open():
+                logging.info("Market closed. Waiting for next scan.")
+                sleep(scan_interval)
                 continue
 
-            cycle_started = datetime.now(IST)
-
-            logging.info("Starting market scan cycle")
+            logging.info("Starting market scan...")
 
             for name, instrument_key in UNDERLYINGS.items():
-
                 try:
                     scan_underlying(
                         client,
@@ -257,32 +240,21 @@ def main():
                         name
                     )
 
-            elapsed = (
-                datetime.now(IST) - cycle_started
-            ).total_seconds()
-
-            wait_time = max(
-                1,
-                SCAN_INTERVAL_SECONDS - elapsed
+            logging.info(
+                "Market scan completed. Next scan in %s seconds.",
+                scan_interval
             )
 
-            if datetime.now(IST).time() <= time(15, 30):
-                logging.info(
-                    "Scan completed. Next scan in %.1f seconds",
-                    wait_time
-                )
-                sleep(wait_time)
+            sleep(scan_interval)
 
-    except KeyboardInterrupt:
-        logging.info("Scanner stopped manually")
+        except KeyboardInterrupt:
+            logging.info("Bot stopped manually.")
+            break
 
-    except Exception:
-        logging.exception("Fatal scanner error")
-
-    finally:
-        logging.info("OPTIONS TRADING SIGNAL BOT STOPPED")
+        except Exception:
+            logging.exception("Unexpected scanner error")
+            sleep(scan_interval)
 
 
 if __name__ == "__main__":
     main()
-    
