@@ -1,205 +1,139 @@
-
 import logging
 import pandas as pd
 
 from indicators import calculate_indicators
-from config import MIN_SIGNAL_SCORE
-
 
 logger = logging.getLogger(__name__)
 
+# Strategy defaults requested for the option-buying signal setup.
+ADX_MIN = 22.0
+CALL_RSI_MIN = 60.0
+CALL_RSI_MAX = 75.0
+PUT_RSI_MIN = 25.0
+PUT_RSI_MAX = 40.0
+PULLBACK_LOOKBACK = 3
+PULLBACK_ATR_TOLERANCE = 0.25
 
-def valid_number(value):
-    try:
-        return pd.notna(float(value))
-    except (TypeError, ValueError):
+
+def _finite(row, fields):
+    for field in fields:
+        try:
+            value = float(row[field])
+            if not pd.notna(value):
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
+    return True
+
+
+def _near_level(candles, level, tolerance):
+    """True if any candle in the window traded within tolerance of level."""
+    if not pd.notna(level):
         return False
+    lows = pd.to_numeric(candles["low"], errors="coerce")
+    highs = pd.to_numeric(candles["high"], errors="coerce")
+    return bool(((lows <= level + tolerance) & (highs >= level - tolerance)).any())
 
 
-def analyze_direction(fast, slow):
-
-    required = [
-        "ema9", "ema21", "ema50",
-        "rsi", "macd", "macd_signal",
-        "adx", "supertrend_direction",
-        "close", "open", "volume",
-        "volume_avg", "vwap"
+def analyze_setup(fast_df, slow_df, name="INDEX"):
+    """Evaluate completed 5m candles with 15m EMA trend confirmation."""
+    required_fast = [
+        "open", "high", "low", "close", "volume", "volume_avg",
+        "ema9", "ema21", "rsi", "adx", "atr", "vwap"
     ]
-
-    for field in required:
-        if field not in fast or not valid_number(fast[field]):
-            return 0, [f"Invalid 5m data: {field}"]
-
-    for field in ["ema9", "ema21"]:
-        if field not in slow or not valid_number(slow[field]):
-            return 0, [f"Invalid 15m data: {field}"]
-
-    score = 0
-    reasons = []
-
-    # 5-minute trend
-    if fast["ema9"] > fast["ema21"]:
-        score += 10
-        reasons.append("5m EMA bullish")
-    elif fast["ema9"] < fast["ema21"]:
-        score -= 10
-        reasons.append("5m EMA bearish")
-
-    # 15-minute trend
-    if slow["ema9"] > slow["ema21"]:
-        score += 20
-        reasons.append("15m EMA bullish")
-    elif slow["ema9"] < slow["ema21"]:
-        score -= 20
-        reasons.append("15m EMA bearish")
-
-    # Major trend
-    if fast["close"] > fast["ema50"]:
-        score += 10
-        reasons.append("Price above EMA50")
-    elif fast["close"] < fast["ema50"]:
-        score -= 10
-        reasons.append("Price below EMA50")
-
-    # VWAP
-    if fast["close"] > fast["vwap"]:
-        score += 10
-        reasons.append("Price above VWAP")
-    elif fast["close"] < fast["vwap"]:
-        score -= 10
-        reasons.append("Price below VWAP")
-
-    # RSI
-    if 52 <= fast["rsi"] <= 70:
-        score += 10
-        reasons.append("RSI bullish")
-    elif 30 <= fast["rsi"] <= 48:
-        score -= 10
-        reasons.append("RSI bearish")
-
-    # MACD
-    if fast["macd"] > fast["macd_signal"]:
-        score += 10
-        reasons.append("MACD bullish")
-    elif fast["macd"] < fast["macd_signal"]:
-        score -= 10
-        reasons.append("MACD bearish")
-
-    # ADX
-    if fast["adx"] >= 20:
-        if fast["ema9"] > fast["ema21"]:
-            score += 5
-            reasons.append("ADX bullish confirmation")
-        elif fast["ema9"] < fast["ema21"]:
-            score -= 5
-            reasons.append("ADX bearish confirmation")
-
-    # Supertrend
-    if fast["supertrend_direction"] == 1:
-        score += 10
-        reasons.append("Supertrend bullish")
-    elif fast["supertrend_direction"] == -1:
-        score -= 10
-        reasons.append("Supertrend bearish")
-
-    # Volume
-    if fast["volume_avg"] > 0 and fast["volume"] > fast["volume_avg"]:
-        if fast["close"] > fast["open"]:
-            score += 5
-            reasons.append("Bullish volume")
-        elif fast["close"] < fast["open"]:
-            score -= 5
-            reasons.append("Bearish volume")
-
-    return score, reasons
-
-
-def generate_signal(name, candles5, candles15):
-
-    fast_df = calculate_indicators(candles5)
-    slow_df = calculate_indicators(candles15)
+    required_slow = ["ema9", "ema21", "close"]
 
     if fast_df is None or slow_df is None:
-        logger.warning("%s: Indicator calculation failed", name)
+        return None
+    if len(fast_df) < 4 or len(slow_df) < 1:
         return None
 
-    fast = fast_df.iloc[-1].to_dict()
-    slow = slow_df.iloc[-1].to_dict()
-
-    score, reasons = analyze_direction(fast, slow)
-
-    bullish_alignment = (
-        fast["ema9"] > fast["ema21"]
-        and slow["ema9"] > slow["ema21"]
-    )
-
-    bearish_alignment = (
-        fast["ema9"] < fast["ema21"]
-        and slow["ema9"] < slow["ema21"]
-    )
-
-    logger.info(
-        "%s DIAGNOSTICS | Score=%s | Required=%s | "
-        "5m EMA9/21=%.2f/%.2f | "
-        "15m EMA9/21=%.2f/%.2f | "
-        "RSI=%.2f | ADX=%.2f | "
-        "MACD=%.4f | MACD Signal=%.4f | "
-        "Supertrend=%s",
-        name,
-        score,
-        MIN_SIGNAL_SCORE,
-        fast["ema9"],
-        fast["ema21"],
-        slow["ema9"],
-        slow["ema21"],
-        fast["rsi"],
-        fast["adx"],
-        fast["macd"],
-        fast["macd_signal"],
-        fast["supertrend_direction"]
-    )
-
-    logger.info("%s REASONS: %s", name, ", ".join(reasons))
-
-    if score >= MIN_SIGNAL_SCORE and bullish_alignment:
-        side = "CALL"
-
-    elif score <= -MIN_SIGNAL_SCORE and bearish_alignment:
-        side = "PUT"
-
-    else:
-        failures = []
-
-        if abs(score) < MIN_SIGNAL_SCORE:
-            failures.append("Score below minimum")
-
-        if not bullish_alignment and not bearish_alignment:
-            failures.append("5m/15m EMA disagreement")
-
-        if score > 0 and not bullish_alignment:
-            failures.append("Bullish alignment missing")
-
-        if score < 0 and not bearish_alignment:
-            failures.append("Bearish alignment missing")
-
-        logger.info(
-            "%s NO TRADE: %s",
-            name,
-            ", ".join(failures) or "Conditions not satisfied"
-        )
-
+    fast = fast_df.iloc[-1]
+    slow = slow_df.iloc[-1]
+    if not _finite(fast, required_fast) or not _finite(slow, required_slow):
+        logger.info("%s: invalid or incomplete indicator data", name)
         return None
+
+    # The three candles before the trigger candle must show a pullback
+    # near one of the dynamic levels.
+    pullback = fast_df.iloc[-(PULLBACK_LOOKBACK + 1):-1]
+    if len(pullback) != PULLBACK_LOOKBACK:
+        return None
+
+    tolerance = max(float(fast["atr"]) * PULLBACK_ATR_TOLERANCE, 0.01)
+    levels = {
+        "EMA 9": float(fast["ema9"]),
+        "EMA 21": float(fast["ema21"]),
+        "VWAP": float(fast["vwap"]),
+    }
+    touched = [
+        label for label, level in levels.items()
+        if _near_level(pullback, level, tolerance)
+    ]
+    if not touched:
+        return None
+
+    bullish = (
+        float(fast["close"]) > float(fast["vwap"])
+        and float(fast["ema9"]) > float(fast["ema21"])
+        and float(fast["adx"]) > ADX_MIN
+        and CALL_RSI_MIN < float(fast["rsi"]) < CALL_RSI_MAX
+        and float(slow["ema9"]) > float(slow["ema21"])
+        and float(fast["close"]) > float(fast["open"])
+    )
+    bearish = (
+        float(fast["close"]) < float(fast["vwap"])
+        and float(fast["ema9"]) < float(fast["ema21"])
+        and float(fast["adx"]) > ADX_MIN
+        and PUT_RSI_MIN < float(fast["rsi"]) < PUT_RSI_MAX
+        and float(slow["ema9"]) < float(slow["ema21"])
+        and float(fast["close"]) < float(fast["open"])
+    )
+
+    if not bullish and not bearish:
+        return None
+
+    side = "CALL" if bullish else "PUT"
+    reasons = [
+        "Price " + ("above" if bullish else "below") + " session VWAP",
+        "5m EMA 9/21 " + ("bullish" if bullish else "bearish"),
+        "15m EMA 9/21 confirms " + ("bullish" if bullish else "bearish"),
+        f"ADX {float(fast['adx']):.2f} > {ADX_MIN:g}",
+        f"RSI {float(fast['rsi']):.2f} in entry range",
+        "Prior pullback near " + ", ".join(touched),
+        "Completed candle " + ("bullish" if bullish else "bearish"),
+    ]
 
     return {
         "symbol": name,
         "side": side,
-        "score": abs(score),
+        "score": 100,
         "reasons": reasons,
         "spot": float(fast["close"]),
         "rsi": float(fast["rsi"]),
         "adx": float(fast["adx"]),
         "vwap": float(fast["vwap"]),
         "atr": float(fast["atr"]),
-        "timestamp": str(fast["timestamp"])
+        "ema9": float(fast["ema9"]),
+        "ema21": float(fast["ema21"]),
+        "higher_timeframe_trend": "Bullish" if bullish else "Bearish",
+        "pullback_levels": touched,
+        "timestamp": str(fast["timestamp"]),
     }
-    
+
+
+def generate_signal(name, candles5, candles15):
+    fast_df = calculate_indicators(candles5)
+    slow_df = calculate_indicators(candles15)
+    signal = analyze_setup(fast_df, slow_df, name)
+
+    if signal:
+        logger.info(
+            "%s VALID %s SETUP | RSI=%.2f ADX=%.2f VWAP=%.2f | %s",
+            name, signal["side"], signal["rsi"], signal["adx"],
+            signal["vwap"], ", ".join(signal["pullback_levels"])
+        )
+    else:
+        logger.info("%s: no signal; strategy conditions not all satisfied", name)
+
+    return signal
