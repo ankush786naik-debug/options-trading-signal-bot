@@ -64,8 +64,14 @@ def add_indicators(df):
 def merge_15m(five, fifteen):
     slow = fifteen[["timestamp", "ema9", "ema21"]].rename(
         columns={"ema9": "ema9_15m", "ema21": "ema21_15m"})
-    # Shift 15m timestamps to candle close time to prevent lookahead.\n    slow["timestamp"] = slow["timestamp"] + pd.Timedelta(minutes=15)\n    return pd.merge_asof(five.sort_values("timestamp"), slow.sort_values("timestamp"),
-                         on="timestamp", direction="backward")
+    # Shift 15m timestamps to candle close time to prevent lookahead.
+    slow["timestamp"] = slow["timestamp"] + pd.Timedelta(minutes=15)
+    return pd.merge_asof(
+        five.sort_values("timestamp"),
+        slow.sort_values("timestamp"),
+        on="timestamp",
+        direction="backward",
+    )
 
 
 def make_variants(df):
