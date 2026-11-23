@@ -80,6 +80,7 @@ def analyze_setup(fast_df, slow_df, name="INDEX"):
         and CALL_RSI_MIN < float(fast["rsi"]) < CALL_RSI_MAX
         and float(slow["ema9"]) > float(slow["ema21"])
         and float(fast["close"]) > float(fast["open"])
+        and float(fast["volume"]) > float(fast["volume_avg"])
     )
     bearish = (
         float(fast["close"]) < float(fast["vwap"])
@@ -88,6 +89,7 @@ def analyze_setup(fast_df, slow_df, name="INDEX"):
         and PUT_RSI_MIN < float(fast["rsi"]) < PUT_RSI_MAX
         and float(slow["ema9"]) < float(slow["ema21"])
         and float(fast["close"]) < float(fast["open"])
+        and float(fast["volume"]) > float(fast["volume_avg"])
     )
 
     if not bullish and not bearish:
