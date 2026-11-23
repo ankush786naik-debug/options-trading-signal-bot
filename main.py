@@ -83,40 +83,40 @@ def scan_underlying(client, name, instrument_key):
 
     if len(candles5) < 50 or len(candles15) < 50:
         logging.warning("%s: Insufficient completed candles. 5m=%d, 15m=%d", name, len(candles5), len(candles15))
-        return
+        return f"{name}: NO TRADE — insufficient candles (5m={len(candles5)}, 15m={len(candles15)})"
 
     if not candle_data_is_fresh(candles5, 5):
         logging.warning("%s: 5-minute data is stale", name)
-        return
+        return f"{name}: DATA WAIT — 5m candles stale"
     if not candle_data_is_fresh(candles15, 15):
         logging.warning("%s: 15-minute data is stale", name)
-        return
+        return f"{name}: DATA WAIT — 15m candles stale"
 
     signal = generate_signal(name, candles5, candles15)
     if not signal:
         logging.info("%s: NO TRADE", name)
-        return
+        return f"{name}: NO TRADE — setup conditions not met"
 
     expiry = client.get_nearest_expiry(instrument_key)
     chain = client.option_chain(instrument_key, expiry)
     option = select_option(chain, signal["side"])
     if not option:
         logging.info("%s: No liquid option found", name)
-        return
+        return f"{name}: NO TRADE — no liquid ATM/ITM option"
 
     trade = calculate_trade(option)
     if not trade:
         logging.info("%s: Invalid option premium", name)
-        return
+        return f"{name}: NO TRADE — invalid option premium"
 
     final_signal = {**signal, **trade, "expiry": expiry}
     if signal_exists(trade["instrument_key"], signal["timestamp"]):
         logging.info("%s: Duplicate signal ignored", name)
-        return
+        return f"{name}: NO NEW ALERT — duplicate signal"
 
     if signal_in_cooldown(signal["symbol"], signal["side"], signal["timestamp"]):
         logging.info("%s: Same-direction signal is in 15-minute cooldown", name)
-        return
+        return f"{name}: NO NEW ALERT — 15m same-direction cooldown"
 
     message = format_signal(final_signal)
     logging.info(message)
@@ -125,22 +125,49 @@ def scan_underlying(client, name, instrument_key):
     if delivered:
         record_signal(final_signal)
         logging.info("%s: Signal sent and recorded", name)
+        return f"{name}: SIGNAL SENT — option buying alert delivered"
     else:
         logging.warning("%s: Telegram delivery failed; signal not recorded", name)
+        return f"{name}: ALERT DELIVERY FAILED"
 
 
 def run_scan_cycle(client):
+    now = datetime.now(IST)
+    stamp = now.strftime("%d-%b %H:%M IST")
     if not market_is_open():
-        logging.info("Market closed. No scan performed.")
+        message = (
+            f"🤖 OPTIONS BOT STATUS\n{stamp}\n"
+            "No scan — outside configured market window (09:20–14:45 IST)."
+        )
+        logging.info(message)
+        try:
+            send_message(message)
+        except Exception:
+            logging.exception("Failed to send bot status to Telegram")
         return
 
     logging.info("Starting market scan...")
+    statuses = []
     for name, instrument_key in UNDERLYINGS.items():
         try:
-            scan_underlying(client, name, instrument_key)
-        except Exception:
+            status = scan_underlying(client, name, instrument_key)
+            statuses.append(status or f"{name}: NO TRADE — scan returned no signal")
+        except Exception as error:
             logging.exception("Failed scanning %s", name)
-    logging.info("Market scan completed.")
+            statuses.append(f"{name}: SCAN ERROR — {type(error).__name__}")
+
+    message = (
+        f"🤖 OPTIONS BOT STATUS\n{stamp}\n"
+        "Scan completed.\n\n"
+        + "\n".join(statuses)
+        + "\n\nNext scheduled scan: approximately 5 minutes."
+    )
+    logging.info("Market scan completed. Sending status heartbeat.")
+    try:
+        send_message(message)
+        logging.info("Bot status heartbeat sent to Telegram")
+    except Exception:
+        logging.exception("Failed to send bot status heartbeat to Telegram")
 
 
 def main():
