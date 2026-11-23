@@ -74,8 +74,12 @@ def candles_frame(candles):
 
 def add_indicators(df, adx_period=14):
     data = df.copy()
-    typical_price = (data.high + data.low + data.close) / 3.0
+    if data.empty or "volume" not in data:
+        raise RuntimeError("Cannot calculate VWAP without futures candle volume.")
     volume = data.volume.clip(lower=0)
+    if float(volume.sum()) <= 0 or float((volume > 0).mean()) < 0.90:
+        raise RuntimeError("Invalid futures volume: VWAP backtest stopped.")
+    typical_price = (data.high + data.low + data.close) / 3.0
     cumulative_volume = volume.groupby(data.session, sort=False).cumsum()
     cumulative_value = (typical_price * volume).groupby(data.session, sort=False).cumsum()
     data["vwap"] = cumulative_value / cumulative_volume.where(cumulative_volume > 0)
