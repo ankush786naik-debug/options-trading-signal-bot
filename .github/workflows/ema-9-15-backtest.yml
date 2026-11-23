@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run 12-month pure EMA 9/15 reversal backtest
+      - name: Run 12-month EMA 9/15 strategy comparison (four filter variants)
         env:
           UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
           COST_POINTS: ${{ inputs.cost_points }}
@@ -35,6 +35,6 @@ jobs:
       - name: Upload 12-month results
         uses: actions/upload-artifact@v4
         with:
-          name: ema-9-15-12-month-backtest
+          name: ema-9-15-filter-comparison-12-months
           path: ema_9_15_backtest_results/
           if-no-files-found: error
