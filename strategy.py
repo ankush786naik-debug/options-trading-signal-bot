@@ -114,6 +114,8 @@ def analyze_setup(fast_df, slow_df, name="INDEX"):
         "adx": float(fast["adx"]),
         "vwap": float(fast["vwap"]),
         "atr": float(fast["atr"]),
+        "underlying_stop": round(float(fast["close"]) - (1.5 * float(fast["atr"])) if bullish else float(fast["close"]) + (1.5 * float(fast["atr"])), 2),
+        "underlying_target": round(float(fast["close"]) + (3.0 * float(fast["atr"])) if bullish else float(fast["close"]) - (3.0 * float(fast["atr"])), 2),
         "ema9": float(fast["ema9"]),
         "ema21": float(fast["ema21"]),
         "higher_timeframe_trend": "Bullish" if bullish else "Bearish",
