@@ -7,7 +7,7 @@ Python-based Indian index options buying analysis system using Upstox data.
 - BANKNIFTY
 - SENSEX
 
-## Signal setup
+## Production signal setup
 Signals are evaluated only on completed 5-minute candles and require completed 15-minute EMA confirmation.
 
 ### BUY CE
@@ -36,24 +36,22 @@ The scanner is limited to 09:20–14:45 IST. The scheduled GitHub Actions workfl
 - Telegram message includes option premium, premium-based risk levels, underlying ATR invalidation/2R target, indicators, OI and volume.
 - Duplicate signals are suppressed and a 15-minute same-direction cooldown is applied.
 
-## Separate EMA 9/15 crossover filter comparison (backtest only)
+## VWAP strategy comparison (backtest only)
 
-This comparison is separate from the current production scanner and does **not** send trade alerts. It runs the same EMA 9/15 crossover entry and exit rules against four variants:
+The retired EMA 9/15 crossover experiment has been removed. The replacement backtest compares exactly two strategies on 12 months of 5-minute NIFTY, BANKNIFTY and SENSEX candles:
 
-1. **Baseline:** EMA 9/15 crossover alone.
-2. **VWAP:** EMA 9/15 crossover; bullish entries require close above session VWAP and bearish entries require close below session VWAP.
-3. **ADX:** EMA 9/15 crossover with ADX(14) >= 20 (threshold can be changed).
-4. **VWAP + ADX:** both filters must pass.
+1. **VWAP-only:** A bullish signal occurs when the completed candle crosses above session VWAP; a bearish signal occurs when it crosses below session VWAP.
+2. **VWAP + ADX:** Uses the same VWAP-cross signal, but only accepts the signal when ADX(14) is at least the configured threshold (default 20).
 
-The entry is the next 5-minute candle open after the crossover candle closes. Exit is the next candle open after an opposite crossover, or the last completed candle of that session. VWAP resets each session. The ADX threshold defaults to 20 and can be adjusted in the workflow command with `--adx-threshold`.
+Entry is at the next 5-minute candle open. A position exits at the next candle open after an opposite VWAP cross, or at the final completed candle of that session. VWAP resets each trading day. The backtest permits only one open position at a time per index/strategy. Candidate and filtered signal counts are included for troubleshooting; trade and signal CSVs retain headers even if no rows qualify.
 
-Run from **Actions → EMA 9-15 Reversal Backtest → Run workflow**. The script fetches 12 months of 5-minute candles for NIFTY, BANKNIFTY, and SENSEX. Download the `ema-9-15-filter-comparison-12-months` artifact. It includes strategy-by-index summary, monthly summary, and individual trade logs for all four variants.
+Run from **Actions → VWAP Strategy Backtest → Run workflow**. The workflow uses the `UPSTOX_ANALYTICS_TOKEN` repository secret and creates the `vwap-only-vwap-adx-12-months` artifact containing summary, monthly summary, signal diagnostics and per-index trade logs.
 
-Results are underlying-index points, not actual option-premium P&L. Option strike selection, premium/IV changes, theta, brokerage, taxes, and realistic slippage are not modelled. The results compare filter accuracy/consistency only and do not establish live options profitability. The production signal bot is unchanged.
+Results are underlying-index points, not actual option-premium P&L. Option strike selection, premium/IV changes, theta, brokerage, taxes and realistic slippage are not fully modelled. The cost input is only an underlying-points proxy. This research workflow does not send alerts and does not modify the production scanner.
 
-## Backtest indicator combinations
+## Additional CSV backtest
 
-Prepare separate historical underlying-index CSVs for 5-minute and 15-minute candles. Required headers:
+Prepare historical underlying-index CSVs for 5-minute and 15-minute candles. Required headers:
 
 `timestamp,open,high,low,close,volume`
 
@@ -63,9 +61,9 @@ Run:
 python backtest.py --5m data_5m.csv --15m data_15m.csv --output backtest_results.csv
 ```
 
-The script compares EMA crossover, RSI, ADX, VWAP, indicator combinations, and the full higher-timeframe pullback setup. It reports trade count, win rate, net underlying points, average points per trade, profit factor, and max drawdown; individual trade logs are written as separate CSVs.
+This separate general-purpose script compares indicators and higher-timeframe setups. It is not the retired EMA 9/15 experiment.
 
-**Important limitation:** This is an underlying-index-points proxy, not an options-premium backtest. It does not model option premium, strike selection, IV, theta, brokerage, taxes, or slippage. Use it to compare signal filters only; it does not establish option-buying profitability.
+**Important limitation:** These are underlying-index-points proxies, not options-premium backtests. They do not model option premium, strike selection, IV, theta, brokerage, taxes or realistic slippage. Use them for research only; they do not establish live options profitability.
 
 ## Setup
 ```bash
