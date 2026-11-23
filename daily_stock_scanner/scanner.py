@@ -313,16 +313,18 @@ def telegram_send(text: str):
 
 def format_signal(s: dict) -> str:
     why = ", ".join(s["reasons"])
+    fundamental_why = ", ".join(s.get("fundamental_reasons", [])) or "Not available"
     return (
         f"🟢 NSE SWING BUY SETUP — {s['symbol']}\n"
-        f"{s['name']} | Score: {s['score']}/100\n"
+        f"{s['name']} | Combined: {s['score']}/100 (Tech {s.get('technical_score', s['score'])}, Fund {s.get('fundamental_score', 0)})\n"
         f"Close: ₹{s['price']:.2f} | RSI: {s['rsi']:.1f} | Vol: {s['volume_ratio']:.2f}x\n"
         f"Entry zone: ₹{s['price'] * 0.995:.2f}–₹{s['price'] * 1.005:.2f}\n"
         f"Stop-loss: ₹{s['stop']:.2f} ({s['risk_pct']:.1f}% risk)\n"
         f"Target 1 (+5%): ₹{s['target1']:.2f}\n"
         f"Target 2 (+10%): ₹{s['target2']:.2f}\n"
         f"Stretch (+up to 15%): ₹{s['stretch']:.2f}\n"
-        f"Why: {why}\n"
+        f"Fundamentals: {fundamental_why}\n"
+        f"Technical setup: {why}\n"
         f"Data date: {s['asof']}\n"
         f"Signal only — verify chart/news and manage risk."
     )
