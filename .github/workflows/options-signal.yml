@@ -10,11 +10,10 @@ on:
         default: true
 
   schedule:
-    # Every 5 minutes from 09:15 through 15:00 IST (weekdays).
-    # GitHub cron uses UTC: 03:45 UTC = 09:15 IST.
-    - cron: "45-59/5 3 * * 1-5"
-    - cron: "*/5 4-8 * * 1-5"
-    - cron: "0-30/5 9 * * 1-5"
+    # Start one persistent scanner session at 09:20 IST on weekdays.
+    # The job itself performs a scan every 5 minutes until 14:45 IST.
+    # GitHub cron uses UTC: 03:50 UTC = 09:20 IST.
+    - cron: "50 3 * * 1-5"
 
 permissions:
   contents: read
@@ -26,7 +25,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository
@@ -66,13 +65,13 @@ jobs:
           ALERTS_ENABLED: "true"
         run: python telegram_test.py
 
-      - name: Run one scanner cycle
+      - name: Run scanner continuously through market session
         env:
           UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALERTS_ENABLED: "true"
-          RUN_ONCE: "true"
+          RUN_ONCE: "false"
           LOG_LEVEL: INFO
         run: python main.py
 
