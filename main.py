@@ -197,8 +197,12 @@ def main():
                 logging.info("Market scan session finished for today.")
                 break
 
-            logging.info("Next scan in %s seconds.", SCAN_INTERVAL_SECONDS)
-            sleep(SCAN_INTERVAL_SECONDS)
+            now = datetime.now(IST)
+            seconds_to_next = SCAN_INTERVAL_SECONDS - (
+                (now.minute * 60 + now.second) % SCAN_INTERVAL_SECONDS
+            )
+            logging.info("Next scan at the next 5-minute boundary (%s seconds).", seconds_to_next)
+            sleep(seconds_to_next)
         except KeyboardInterrupt:
             logging.info("Bot stopped manually.")
             break
