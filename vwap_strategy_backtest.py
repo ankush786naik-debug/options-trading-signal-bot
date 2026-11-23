@@ -5,7 +5,6 @@ Research-only underlying-index backtest; not option-premium P&L.
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -22,54 +21,10 @@ TRADE_COLUMNS = [
 ]
 
 
-def parse_timestamp(value):
-    stamp = pd.Timestamp(value)
-    return stamp.tz_localize("Asia/Kolkata") if stamp.tzinfo is None else stamp.tz_convert("Asia/Kolkata")
-
-
 def date_range_six_months():
     # Upstox expired-instrument expiry discovery documents up to six months of history.
     end = datetime.now(IST).date() - timedelta(days=1)
     return end - timedelta(days=180), end
-
-
-def fetch_candles(client, instrument_key, start, end, interval=5):
-    if interval != 5:
-        raise ValueError("This strategy uses 5-minute candles only.")
-    key = quote(instrument_key, safe="")
-    candles, cursor = [], start
-    while cursor <= end:
-        chunk_end = min(cursor + timedelta(days=27), end)
-        endpoint = f"/v3/historical-candle/{key}/minutes/5/{chunk_end.isoformat()}/{cursor.isoformat()}"
-        payload = client.get(endpoint)
-        if not isinstance(payload, dict) or not isinstance(payload.get("candles"), list):
-            raise RuntimeError(f"Invalid Upstox historical response for {instrument_key}")
-        candles.extend(payload["candles"])
-        print(f"  downloaded {cursor} to {chunk_end}: {len(payload['candles'])} candles")
-        cursor = chunk_end + timedelta(days=1)
-    return candles
-
-
-def candles_frame(candles):
-    rows = []
-    for candle in candles or []:
-        if not isinstance(candle, list) or len(candle) < 6:
-            continue
-        try:
-            rows.append({
-                "timestamp": parse_timestamp(candle[0]),
-                "open": float(candle[1]), "high": float(candle[2]),
-                "low": float(candle[3]), "close": float(candle[4]),
-                "volume": max(float(candle[5] or 0), 0.0),
-            })
-        except (TypeError, ValueError, OverflowError):
-            continue
-    if not rows:
-        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "session"])
-    data = pd.DataFrame(rows).drop_duplicates("timestamp", keep="last").sort_values("timestamp").reset_index(drop=True)
-    data["session"] = data.timestamp.dt.date
-    now = pd.Timestamp.now(tz=IST)
-    return data[data.timestamp + pd.Timedelta(minutes=5) <= now].reset_index(drop=True)
 
 
 def add_indicators(df, adx_period=14):
