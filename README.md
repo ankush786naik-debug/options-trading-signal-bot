@@ -36,21 +36,6 @@ The scanner is limited to 09:20–14:45 IST. The scheduled GitHub Actions workfl
 - Telegram message includes option premium, premium-based risk levels, underlying ATR invalidation/2R target, indicators, OI and volume.
 - Duplicate signals are suppressed and a 15-minute same-direction cooldown is applied.
 
-## Additional CSV backtest
-
-Prepare historical underlying-index CSVs for 5-minute and 15-minute candles. Required headers:
-
-`timestamp,open,high,low,close,volume`
-
-Run:
-```bash
-python backtest.py --5m data_5m.csv --15m data_15m.csv --output backtest_results.csv
-```
-
-This separate general-purpose script compares indicators and higher-timeframe setups.
-
-**Important limitation:** These are underlying-index-points proxies, not options-premium backtests. They do not model option premium, strike selection, IV, theta, brokerage, taxes or realistic slippage. Use them for research only; they do not establish live options profitability.
-
 ## Setup
 ```bash
 pip install -r requirements.txt
