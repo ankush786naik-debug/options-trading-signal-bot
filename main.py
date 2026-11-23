@@ -13,7 +13,7 @@ from telegram_bot import send_message, format_signal
 from trade_manager import signal_exists, signal_in_cooldown, record_signal
 
 IST = ZoneInfo("Asia/Kolkata")
-SCAN_INTERVAL_SECONDS = 60
+SCAN_INTERVAL_SECONDS = 300
 RUN_ONCE = os.getenv("RUN_ONCE", "false").strip().lower() == "true"
 
 logging.basicConfig(
@@ -184,7 +184,19 @@ def main():
 
     while True:
         try:
+            # The scheduled GitHub Actions job stays alive for the market session.
+            # Stop after the final configured scan window to avoid post-market
+            # "outside market window" Telegram messages.
+            if datetime.now(IST).time() >= time(14, 45):
+                logging.info("Market scan session finished for today.")
+                break
+
             run_scan_cycle(client)
+
+            if datetime.now(IST).time() >= time(14, 45):
+                logging.info("Market scan session finished for today.")
+                break
+
             logging.info("Next scan in %s seconds.", SCAN_INTERVAL_SECONDS)
             sleep(SCAN_INTERVAL_SECONDS)
         except KeyboardInterrupt:
