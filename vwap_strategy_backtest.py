@@ -83,32 +83,42 @@ def add_indicators(df, adx_period=14):
     cumulative_volume = volume.groupby(data.session, sort=False).cumsum()
     cumulative_value = (typical_price * volume).groupby(data.session, sort=False).cumsum()
     data["vwap"] = cumulative_value / cumulative_volume.where(cumulative_volume > 0)
+    if not data.vwap.notna().any():
+        raise RuntimeError("VWAP is undefined for all candles.")
 
-    # VWAP direction-change signals; VWAP is reset for each trading session.
     previous_close = data.close.shift(1)
     previous_vwap = data.vwap.shift(1)
     same_session = data.session.eq(data.session.shift(1))
     data["bull_cross"] = ((data.close > data.vwap) & (previous_close <= previous_vwap) & same_session).fillna(False)
     data["bear_cross"] = ((data.close < data.vwap) & (previous_close >= previous_vwap) & same_session).fillna(False)
 
-    prev_close = data.close.shift(1)
+    # Reset ADX state at contract rollover to avoid mixing futures price series.
+    group_key = data["contract_key"] if "contract_key" in data else pd.Series("single", index=data.index)
+    grouped = data.groupby(group_key, sort=False)
+    previous_contract_close = grouped.close.shift(1)
     true_range = pd.concat([
         data.high - data.low,
-        (data.high - prev_close).abs(),
-        (data.low - prev_close).abs(),
+        (data.high - previous_contract_close).abs(),
+        (data.low - previous_contract_close).abs(),
     ], axis=1).max(axis=1)
-    up = data.high.diff()
-    down = -data.low.diff()
+    up = grouped.high.diff()
+    down = -grouped.low.diff()
     plus_dm = up.where((up > down) & (up > 0), 0.0)
     minus_dm = down.where((down > up) & (down > 0), 0.0)
     alpha = 1.0 / adx_period
-    atr = true_range.ewm(alpha=alpha, adjust=False, min_periods=adx_period).mean()
-    plus_smoothed = plus_dm.ewm(alpha=alpha, adjust=False, min_periods=adx_period).mean()
-    minus_smoothed = minus_dm.ewm(alpha=alpha, adjust=False, min_periods=adx_period).mean()
+
+    def smooth(series):
+        return series.groupby(group_key, sort=False).transform(
+            lambda values: values.ewm(alpha=alpha, adjust=False, min_periods=adx_period).mean()
+        )
+
+    atr = smooth(true_range)
+    plus_smoothed = smooth(plus_dm)
+    minus_smoothed = smooth(minus_dm)
     plus_di = 100.0 * plus_smoothed / atr.replace(0, float("nan"))
     minus_di = 100.0 * minus_smoothed / atr.replace(0, float("nan"))
     dx = 100.0 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, float("nan"))
-    data["adx14"] = dx.ewm(alpha=alpha, adjust=False, min_periods=adx_period).mean()
+    data["adx14"] = smooth(dx)
     return data
 
 
