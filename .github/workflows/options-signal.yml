@@ -1,8 +1,13 @@
-
 name: Options Signal Bot
 
 on:
   workflow_dispatch:
+    inputs:
+      send_telegram_test:
+        description: "Send a Telegram connectivity test message"
+        required: true
+        type: boolean
+        default: true
 
   schedule:
     - cron: "*/5 3-10 * * 1-5"
@@ -17,7 +22,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
@@ -49,12 +54,21 @@ jobs:
             echo '{"signals": []}' > trade_state.json
           fi
 
-      - name: Run scanner
+      - name: Send Telegram connectivity test
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.send_telegram_test }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_ENABLED: "true"
+        run: python telegram_test.py
+
+      - name: Run one scanner cycle
         env:
           UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ALERTS_ENABLED: "false"
+          ALERTS_ENABLED: "true"
+          RUN_ONCE: "true"
           LOG_LEVEL: INFO
         run: python main.py
 
@@ -64,4 +78,3 @@ jobs:
         with:
           path: trade_state.json
           key: trade-state-${{ github.run_id }}-${{ github.run_attempt }}
-          
