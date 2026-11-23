@@ -10,11 +10,11 @@ on:
         default: true
 
   schedule:
-    # Offset by one minute to avoid busy scheduler boundaries.
-    # 09:21–14:41 IST, every 5 minutes on weekdays.
-    - cron: "51,56 3 * * 1-5"
-    - cron: "1-56/5 4-8 * * 1-5"
-    - cron: "1,6,11 9 * * 1-5"
+    # Every 15 minutes from 09:15 through 15:00 IST (weekdays).
+    # GitHub cron uses UTC: 03:45 UTC = 09:15 IST.
+    - cron: "45 3 * * 1-5"
+    - cron: "*/15 4-8 * * 1-5"
+    - cron: "0,15,30 9 * * 1-5"
 
 permissions:
   contents: read
