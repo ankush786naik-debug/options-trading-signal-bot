@@ -16,10 +16,8 @@ INSTRUMENT_FILES = {
 
 
 def _get_data(client, path, params=None):
-    data = client.get(path, params=params)
-    if not isinstance(data, dict):
-        raise RuntimeError(f"Unexpected Upstox response for {path}")
-    return data
+    # UpstoxClient.get() already unwraps the top-level data field.
+    return client.get(path, params=params)
 
 
 def load_bod_futures(exchange, underlying_key, symbol):
@@ -70,7 +68,7 @@ def resolve_futures_contracts(client, symbol, underlying_key, exchange, start, e
         "/v2/expired-instruments/expiries",
         {"instrument_key": underlying_key},
     )
-    expiries = expiries_payload.get("expiries", expiries_payload.get("data", []))
+    expiries = expiries_payload
     if not isinstance(expiries, list):
         raise RuntimeError(f"Invalid expiry list for {symbol}")
 
@@ -88,7 +86,7 @@ def resolve_futures_contracts(client, symbol, underlying_key, exchange, start, e
             "/v2/expired-instruments/future/contract",
             {"instrument_key": underlying_key, "expiry_date": expiry.isoformat()},
         )
-        rows = payload.get("contracts", payload.get("data", []))
+        rows = payload
         if not isinstance(rows, list):
             raise RuntimeError(f"Invalid expired-futures response for {symbol} {expiry}")
         for row in rows:
