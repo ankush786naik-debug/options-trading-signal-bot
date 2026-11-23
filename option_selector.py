@@ -30,6 +30,14 @@ def select_option(chain, side):
         else "put_options"
     )
 
+    strikes = sorted({
+        safe_float(row.get("strike_price"))
+        for row in chain
+        if isinstance(row, dict) and safe_float(row.get("strike_price")) > 0
+    })
+    gaps = [b - a for a, b in zip(strikes, strikes[1:]) if b > a]
+    strike_step = min(gaps) if gaps else 0.0
+
     candidates = []
 
     for row in chain:
@@ -92,9 +100,9 @@ def select_option(chain, side):
             continue
 
         # Prefer ATM or ITM contracts for option buying; reject OTM contracts.
-        if side == "CALL" and strike > spot:
+        if side == "CALL" and (strike > spot or (strike_step and spot - strike > strike_step * 1.01)):
             continue
-        if side == "PUT" and strike < spot:
+        if side == "PUT" and (strike < spot or (strike_step and strike - spot > strike_step * 1.01)):
             continue
 
         candidates.append({
