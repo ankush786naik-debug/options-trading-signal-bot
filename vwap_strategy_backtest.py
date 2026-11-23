@@ -230,7 +230,7 @@ def main():
                 work["month"] = pd.to_datetime(work.entry_time).dt.strftime("%Y-%m")
                 for month, group in work.groupby("month", sort=True):
                     p = group.net_points.astype(float)
-                    win_sum, loss_sum = float(p[p > 0].sum()), float(abs(p[p < 0].sum()))
+                    win_sum, loss_sum = float(p[p > 0].sum()), float(abs(p[p < 0].sum())))
                     monthly_rows.append({
                         "symbol": symbol, "strategy": strategy, "month": month, "trades": len(group),
                         "win_rate_pct": round(100 * float((p > 0).mean()), 2),
