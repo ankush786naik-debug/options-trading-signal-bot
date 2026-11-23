@@ -30,8 +30,6 @@ TOKEN = os.getenv("UPSTOX_ANALYTICS_TOKEN", "").strip()
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TG_CHAT = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "true").lower() == "true"
-MIN_PRICE = float(os.getenv("MIN_PRICE", "200"))
-MAX_PRICE = float(os.getenv("MAX_PRICE", "1000"))
 MIN_AVG_VALUE = float(os.getenv("MIN_AVG_VALUE", "10000000"))  # ₹1 crore
 MIN_SCORE = int(os.getenv("MIN_SCORE", "70"))
 MAX_WORKERS = max(1, min(int(os.getenv("MAX_WORKERS", "4")), 6))
@@ -46,7 +44,7 @@ log = logging.getLogger("daily_nse_scanner")
 # Keep global spacing below the per-minute ceiling, even with worker threads.
 _rate_lock = threading.Lock()
 _last_request = 0.0
-MIN_REQUEST_GAP = 0.14
+MIN_REQUEST_GAP = 0.95  # stay below 2,000 standard requests per 30 minutes
 
 
 def throttled_get(url: str, headers: dict, params: dict | None = None, timeout=30):
@@ -101,6 +99,7 @@ def load_nse_equities() -> list[dict]:
             "instrument_key": key,
             "symbol": symbol,
             "name": row.get("name", symbol),
+            "isin": row.get("isin") or row.get("isin_code") or "",
         })
     if not equities:
         raise RuntimeError("Instrument master loaded but no NSE EQ instruments matched.")
@@ -202,8 +201,6 @@ def evaluate_setup(instrument: dict, candles: pd.DataFrame, ltp: float) -> dict 
     x = add_indicators(candles)
     row, prev = x.iloc[-1], x.iloc[-2]
     price = float(row.close)
-    if not (MIN_PRICE <= price <= MAX_PRICE):
-        return None
     avg_value = float(row.value_avg20) if pd.notna(row.value_avg20) else 0
     if avg_value < MIN_AVG_VALUE:
         return None
@@ -355,14 +352,15 @@ def main():
             "Upstox LTP endpoint returned no usable prices. "
             "Check API access and LTP response mapping; scanner will not report this as zero eligible stocks."
         )
+    # No price boundary: include every NSE equity with a valid positive LTP.
     price_candidates = [
         item for item in universe
-        if MIN_PRICE <= ltp_map.get(item["instrument_key"], 0) <= MAX_PRICE
+        if ltp_map.get(item["instrument_key"], 0) > 0
     ]
-    log.info("Current price filter: %d / %d NSE EQ stocks in ₹%.0f–₹%.0f range",
-             len(price_candidates), len(universe), MIN_PRICE, MAX_PRICE)
+    log.info("No price boundary: %d / %d NSE EQ stocks have valid LTP",
+             len(price_candidates), len(universe))
     if not price_candidates:
-        telegram_send("Daily NSE Stock Scanner: no NSE equities currently in the configured price range.")
+        telegram_send("Daily NSE Stock Scanner: no NSE equities returned a valid LTP.")
         return
 
     results = []
@@ -425,7 +423,7 @@ def main():
         f"Universe: {len(universe)} NSE EQ | Price candidates: {len(price_candidates)}\n"
         f"Technical setups: {len(technical_pool)} screened with Upstox fundamentals\n"
         f"Top stocks passing fundamental score ≥ {FUNDAMENTAL_MIN_SCORE}: {len(results)} (max 5)\n"
-        f"Price filter: ₹{MIN_PRICE:.0f}–₹{MAX_PRICE:.0f} | Fundamental/technical blend: 55%/45%\n"
+        f"Price boundary: NONE | Fundamental/technical blend: 55%/45%\n"
         f"Fundamental data: Upstox financials, ratios, cash flow and balance sheet\n"
         f"Signal-only research; no orders placed. Targets are not guaranteed."
     )
