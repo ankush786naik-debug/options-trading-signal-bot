@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from config import UNDERLYINGS
 from upstox_client import UpstoxClient
+from vwap_futures_data import fetch_continuous_futures, resolve_futures_contracts
 
 IST = ZoneInfo("Asia/Kolkata")
 TRADE_COLUMNS = [
@@ -201,7 +202,7 @@ def run_backtest(df, symbol, strategy, adx_threshold, cost_points):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cost-points", type=float, default=0.0,
-                        help="Estimated round-trip underlying index points (proxy only)")
+                        help="Estimated round-trip cost proxy in futures points")
     parser.add_argument("--adx-threshold", type=float, default=20.0,
                         help="Minimum ADX(14) for VWAP + ADX variant")
     parser.add_argument("--output-dir", default="vwap_backtest_results")
@@ -209,19 +210,31 @@ def main():
     if args.cost_points < 0 or args.adx_threshold < 0:
         parser.error("cost-points and adx-threshold must be non-negative")
 
-    start, end = date_range_one_year()
+    start, end = date_range_six_months()
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    client, summaries, monthly_rows = UpstoxClient(), [], []
-    print(f"Backtest date range: {start} to {end}; ADX threshold: {args.adx_threshold}")
+    client, summaries, monthly_rows, diagnostics, contract_rows = UpstoxClient(), [], [], [], []
+    print(f"FUTURES backtest date range: {start} to {end}; ADX threshold: {args.adx_threshold}")
 
-    for symbol, instrument_key in UNDERLYINGS.items():
-        print(f"\nFetching {symbol} 5-minute candles...")
-        df = candles_frame(fetch_candles(client, instrument_key, start, end))
-        if df.empty:
-            raise RuntimeError(f"No completed candles received for {symbol}")
+    exchanges = {"NIFTY": "NSE", "BANKNIFTY": "NSE", "SENSEX": "BSE"}
+    for symbol, underlying_key in UNDERLYINGS.items():
+        print(f"\nResolving {symbol} futures contracts...")
+        contracts = resolve_futures_contracts(
+            client, symbol, underlying_key, exchanges[symbol], start, end
+        )
+        contract_rows.extend(contracts)
+        df = fetch_continuous_futures(client, contracts, symbol, start, end)
+        volume = df.volume.clip(lower=0)
+        diagnostics.append({
+            "symbol": symbol, "start": str(df.timestamp.min()), "end": str(df.timestamp.max()),
+            "bars": len(df), "positive_volume_pct": round(100 * float((volume > 0).mean()), 2),
+            "total_volume": float(volume.sum()), "contract_count": int(df.contract_key.nunique()),
+            "contracts_used": ";".join(sorted(df.contract_key.unique())),
+        })
         for strategy in ("VWAP_ONLY", "VWAP_ADX"):
-            summary, trades, signals = run_backtest(df, symbol, strategy, args.adx_threshold, args.cost_points)
+            summary, trades, signals = run_backtest(
+                df, symbol, strategy, args.adx_threshold, args.cost_points
+            )
             summaries.append(summary)
             trades.to_csv(output / f"{strategy.lower()}_{symbol.lower()}_trades.csv", index=False)
             signals.to_csv(output / f"{strategy.lower()}_{symbol.lower()}_signals.csv", index=False)
@@ -244,13 +257,14 @@ def main():
     pd.DataFrame(monthly_rows, columns=[
         "symbol", "strategy", "month", "trades", "win_rate_pct", "net_points", "profit_factor"
     ]).to_csv(output / "monthly_summary.csv", index=False)
-    print("\nVWAP STRATEGY COMPARISON")
+    pd.DataFrame(diagnostics).to_csv(output / "futures_data_diagnostics.csv", index=False)
+    pd.DataFrame(contract_rows).to_csv(output / "contracts_used.csv", index=False)
+    print("\nVWAP FUTURES STRATEGY COMPARISON")
     print(pd.DataFrame(summaries)[[
         "symbol", "strategy", "candidate_vwap_crosses", "signals_after_filter",
         "trades", "win_rate_pct", "net_points", "profit_factor", "max_drawdown_points"
     ]].to_string(index=False))
-    print("\nAll CSVs include headers even when no trades/signals qualify.")
-    print("Underlying index points only; options premium, IV, theta, brokerage, taxes and slippage are not modelled.")
+    print("\nResults are futures points, not options-premium P&L. No live orders or production scanner changes.")
 
 
 if __name__ == "__main__":
