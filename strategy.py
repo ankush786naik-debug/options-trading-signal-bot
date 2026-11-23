@@ -101,7 +101,7 @@ def analyze_setup(fast_df, slow_df, name="INDEX"):
         f"ADX {float(fast['adx']):.2f} > {ADX_MIN:g}",
         f"RSI {float(fast['rsi']):.2f} in entry range",
         "Prior pullback near " + ", ".join(touched),
-        "Completed candle " + ("bullish" if bullish else "bearish"),
+        "Completed candle " + ("bullish" if bullish else "bearish"),\n        "Volume above 20-candle average",
     ]
 
     return {
