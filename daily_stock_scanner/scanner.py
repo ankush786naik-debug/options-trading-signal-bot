@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 import requests
 
+from fundamentals import score_fundamentals
+
 IST = ZoneInfo("Asia/Kolkata")
 BASE_URL = "https://api.upstox.com"
 NSE_MASTER_URL = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
@@ -33,6 +35,8 @@ MAX_PRICE = float(os.getenv("MAX_PRICE", "1000"))
 MIN_AVG_VALUE = float(os.getenv("MIN_AVG_VALUE", "10000000"))  # ₹1 crore
 MIN_SCORE = int(os.getenv("MIN_SCORE", "70"))
 MAX_WORKERS = max(1, min(int(os.getenv("MAX_WORKERS", "4")), 6))
+FUNDAMENTAL_MIN_SCORE = int(os.getenv("FUNDAMENTAL_MIN_SCORE", "50"))
+MAX_FUNDAMENTAL_CANDIDATES = max(5, min(int(os.getenv("MAX_FUNDAMENTAL_CANDIDATES", "60")), 100))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
