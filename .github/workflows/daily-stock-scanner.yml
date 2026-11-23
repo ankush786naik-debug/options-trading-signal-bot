@@ -1,0 +1,64 @@
+name: Daily NSE Stock Scanner
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 15:45 IST weekdays = 10:15 UTC
+    - cron: "15 10 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-nse-stock-scanner
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: daily_stock_scanner/requirements.txt
+
+      - name: Install scanner dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r daily_stock_scanner/requirements.txt
+
+      - name: Restore daily alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: daily_stock_scanner/scanner_state.json
+          key: nse-daily-alert-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            nse-daily-alert-state-
+
+      - name: Initialize alert state
+        run: |
+          if [ ! -f daily_stock_scanner/scanner_state.json ]; then
+            echo '{"sent":{}}' > daily_stock_scanner/scanner_state.json
+          fi
+
+      - name: Scan NSE equities and send Telegram alerts
+        env:
+          UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTS_ENABLED: "true"
+          LOG_LEVEL: INFO
+        run: python daily_stock_scanner/scanner.py
+
+      - name: Save alert state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: daily_stock_scanner/scanner_state.json
+          key: nse-daily-alert-state-${{ github.run_id }}-${{ github.run_attempt }}
