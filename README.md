@@ -48,7 +48,7 @@ This setup is kept separate from the current production scanner and does **not**
 
 Run it from **Actions → EMA 9-15 Reversal Backtest → Run workflow**. It uses the existing `UPSTOX_ANALYTICS_TOKEN` secret and fetches the recent 5-minute candles for NIFTY, BANKNIFTY, and SENSEX. Download the `ema-9-15-reversal-backtest` artifact from the completed run; it contains the summary and individual trade logs.
 
-The current Upstox client fetches roughly 7 calendar days plus today's intraday data, so this is only a **preliminary short-sample check**. The report shows trade count, win rate, net underlying points, profit factor, and drawdown. These are underlying-index results, not option-premium accuracy or profitability; IV, theta, strike selection, slippage and brokerage are not modelled. Do not add it to live alerts or judge reliability from this short sample alone.
+The backtest now requests a 12-month date range through Upstox V3 Historical Candle API, fetching history in 28-day chunks to stay within the API's one-month retrieval limit for 5-minute data. The workflow generates summary.csv, monthly_summary.csv, and per-index trade logs. Results are underlying-index points, not actual option-premium P&L; IV, theta, strike selection, and realistic option costs are not modelled. Do not enable live alerts based on this test alone.
 
 ## Backtest indicator combinations
 
