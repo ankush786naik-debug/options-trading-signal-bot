@@ -20,6 +20,12 @@ The scanner reads these secrets independently of the options bot. Do not put tok
 ## Schedule
 Runs weekdays at 3:45 PM IST (10:15 UTC). GitHub Actions scheduling is best-effort and may be delayed.
 
+## Fundamental + technical Top 5 ranking
+
+The scanner uses Upstox Company Fundamentals endpoints (ISIN-based) for key ratios, yearly income statement, cash flow and balance sheet data. It scores ROCE, ROE, revenue/profit growth, valuation versus sector, operating cash-flow consistency and liabilities/assets. Candidates with insufficient fundamental coverage are excluded rather than treated as high quality.
+
+The daily alert ranks at most five stocks from the strongest technical candidates. Combined score = 55% fundamental score + 45% technical score. Default fundamental minimum is 50/100; the scanner evaluates fundamentals for up to 60 leading technical setups to control API usage.
+
 ## Signal method
 The scanner scores a setup using:
 - Price within configured range
