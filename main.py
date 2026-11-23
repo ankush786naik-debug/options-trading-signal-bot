@@ -24,7 +24,7 @@ logging.basicConfig(
 
 def market_is_open():
     now = datetime.now(IST)
-    return now.weekday() < 5 and time(9, 15) <= now.time() <= time(15, 30)
+    return now.weekday() < 5 and time(9, 20) <= now.time() <= time(14, 45)
 
 
 def parse_candle_time(candle):
