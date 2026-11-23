@@ -64,7 +64,7 @@ def add_indicators(df):
 def merge_15m(five, fifteen):
     slow = fifteen[["timestamp", "ema9", "ema21"]].rename(
         columns={"ema9": "ema9_15m", "ema21": "ema21_15m"})
-    return pd.merge_asof(five.sort_values("timestamp"), slow.sort_values("timestamp"),
+    # Shift 15m timestamps to candle close time to prevent lookahead.\n    slow["timestamp"] = slow["timestamp"] + pd.Timedelta(minutes=15)\n    return pd.merge_asof(five.sort_values("timestamp"), slow.sort_values("timestamp"),
                          on="timestamp", direction="backward")
 
 
@@ -82,16 +82,20 @@ def make_variants(df):
     higher_down = df.ema9_15m < df.ema21_15m
     bullish_candle, bearish_candle = df.close > df.open, df.close < df.open
 
-    pullback_up = (
-        (df.low.shift(1) <= df.ema9.shift(1) + 0.25 * df.atr.shift(1))
-        | (df.low.shift(1) <= df.ema21.shift(1) + 0.25 * df.atr.shift(1))
-        | (df.low.shift(1) <= df.vwap.shift(1) + 0.25 * df.atr.shift(1))
-    )
-    pullback_down = (
-        (df.high.shift(1) >= df.ema9.shift(1) - 0.25 * df.atr.shift(1))
-        | (df.high.shift(1) >= df.ema21.shift(1) - 0.25 * df.atr.shift(1))
-        | (df.high.shift(1) >= df.vwap.shift(1) - 0.25 * df.atr.shift(1))
-    )
+    pullback_up = pd.Series(False, index=df.index)
+    pullback_down = pd.Series(False, index=df.index)
+    for lag in (1, 2, 3):
+        tolerance = 0.25 * df.atr.shift(lag)
+        for level in ("ema9", "ema21", "vwap"):
+            level_value = df[level].shift(lag)
+            candle_low = df.low.shift(lag)
+            candle_high = df.high.shift(lag)
+            touched = (
+                (candle_low <= level_value + tolerance)
+                & (candle_high >= level_value - tolerance)
+            )
+            pullback_up |= touched
+            pullback_down |= touched
 
     variants = {
         "EMA9/21 crossover": (cross_up, cross_down),
