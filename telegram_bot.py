@@ -89,7 +89,9 @@ def format_signal(signal):
         "adx",
         "vwap",
         "spread",
-        "reasons"
+        "reasons",
+        "ltp", "underlying_stop", "underlying_target",
+        "higher_timeframe_trend"
     ]
 
     missing = [
@@ -119,9 +121,13 @@ Direction: BUY {signal['side']}
 Strike: {signal['strike']}
 Expiry: {signal['expiry']}
 
-Spot: ₹{float(signal['spot']):.2f}
+Underlying spot: ₹{float(signal['spot']):.2f}
+Underlying invalidation: ₹{float(signal['underlying_stop']):.2f}
+Underlying 2R target: ₹{float(signal['underlying_target']):.2f}
+15m trend: {signal['higher_timeframe_trend']}
 
-Entry above: ₹{float(signal['entry']):.2f}
+Option premium (ask entry): ₹{float(signal['entry']):.2f}
+Option LTP: ₹{float(signal['ltp']):.2f}
 Stop Loss: ₹{float(signal['stop_loss']):.2f}
 
 Target 1: ₹{float(signal['target_1']):.2f}
@@ -138,7 +144,9 @@ Spread: {float(signal['spread']):.2f}%
 Reasons:
 {chr(10).join(str(reason) for reason in reasons)}
 
-MODE: PAPER TRADING ONLY
+OI: {int(float(signal.get('oi', 0)))} | Volume: {int(float(signal.get('volume', 0)))}
+
+MODE: PAPER SIGNAL ONLY
 
 Wait for entry confirmation.
 No live order placed.
