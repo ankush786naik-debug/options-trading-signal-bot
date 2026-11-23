@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       cost_points:
-        description: "Round-trip cost proxy in underlying index points"
+        description: "Round-trip cost proxy in futures points"
         required: true
         type: string
         default: "0"
