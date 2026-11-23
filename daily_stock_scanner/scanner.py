@@ -119,14 +119,27 @@ def fetch_ltp_batch(instruments: list[dict], headers: dict) -> dict[str, float]:
         if not isinstance(data, dict):
             log.warning("Unexpected LTP batch response; batch skipped")
             continue
-        for key, quote_data in data.items():
-            if isinstance(quote_data, dict):
-                try:
-                    price = float(quote_data.get("last_price", 0))
-                    if price > 0:
-                        result[key] = price
-                except (TypeError, ValueError):
-                    pass
+        for response_key, quote_data in data.items():
+            if not isinstance(quote_data, dict):
+                continue
+            try:
+                price = float(quote_data.get("last_price", 0))
+            if price <= 0:
+                continue
+            # Upstox LTP v2 response object keys are display keys such as
+            # "NSE_EQ:NHPC", not the instrument_key supplied in the request.
+            # The exact instrument_key is returned in instrument_token.
+            instrument_key = quote_data.get("instrument_token")
+            if instrument_key:
+                result[str(instrument_key)] = price
+            else:
+                # Compatibility fallback: match by trading symbol after the colon.
+                symbol = str(response_key).split(":", 1)[-1]
+                for instrument in batch:
+                    if instrument["symbol"] == symbol:
+                        result[instrument["instrument_key"]] = price
+                        break
+        log.info("LTP batch %d: received %d quotes", start // 80 + 1, len(data))
     return result
 
 
@@ -332,6 +345,11 @@ def main():
     headers = auth_headers()
     universe = load_nse_equities()
     ltp_map = fetch_ltp_batch(universe, headers)
+    if not ltp_map:
+        raise RuntimeError(
+            "Upstox LTP endpoint returned no usable prices. "
+            "Check API access and LTP response mapping; scanner will not report this as zero eligible stocks."
+        )
     price_candidates = [
         item for item in universe
         if MIN_PRICE <= ltp_map.get(item["instrument_key"], 0) <= MAX_PRICE
