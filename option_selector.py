@@ -91,7 +91,7 @@ def select_option(chain, side):
         if spread > MAX_SPREAD_PCT:
             continue
 
-        candidates.append({
+        # For option buying, prefer ATM or one-step ITM; reject OTM contracts.\n        if side == "CALL" and strike > spot:\n            continue\n        if side == "PUT" and strike < spot:\n            continue\n\n        candidates.append({
             "strike": strike,
             "expiry": row.get("expiry"),
             "instrument_key": instrument_key,
