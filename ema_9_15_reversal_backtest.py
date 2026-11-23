@@ -248,5 +248,5 @@ def main():
     print("Underlying points only; option premium, IV, theta, brokerage and slippage are not modelled.")
 
 
-if __n == "__main__":
+if __name__ == "__main__":
     main()
