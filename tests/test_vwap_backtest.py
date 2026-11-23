@@ -3,6 +3,7 @@ import unittest
 import pandas as pd
 
 from vwap_strategy_backtest import add_indicators, run_backtest
+from vwap_futures_data import fetch_continuous_futures
 
 
 class VwapBacktestTests(unittest.TestCase):
@@ -41,6 +42,24 @@ class VwapBacktestTests(unittest.TestCase):
         self.assertTrue(trades.empty)
         self.assertFalse(signals.empty)
         self.assertTrue(signals.adx_filter_passed.eq(False).all())
+
+    def test_zero_futures_volume_stops_backtest_data(self):
+        class FakeClient:
+            def get(self, path, params=None):
+                return {"candles": [
+                    ["2025-01-06T09:15:00+05:30", 100, 101, 99, 100, 0, 0],
+                ]}
+
+        contracts = [{
+            "symbol": "TEST", "instrument_key": "NSE_FO|test",
+            "expired_instrument_key": "NSE_FO|test|30-01-2025",
+            "expiry": "2025-01-30", "expired": True, "trading_symbol": "TEST FUT",
+        }]
+        with self.assertRaisesRegex(RuntimeError, "futures volume invalid"):
+            fetch_continuous_futures(
+                FakeClient(), contracts, "TEST",
+                pd.Timestamp("2025-01-01").date(), pd.Timestamp("2025-01-10").date()
+            )
 
 
 if __name__ == "__main__":
