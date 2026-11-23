@@ -117,9 +117,11 @@ def run_backtest(df, symbol, strategy, adx_threshold, cost_points):
     trades = []
     candidate_count = passed_count = 0
 
-    for i in range(1, len(data) - 1):
+    i = 1
+    while i < len(data) - 1:
         direction = 1 if bool(data.bull_cross.iloc[i]) else (-1 if bool(data.bear_cross.iloc[i]) else 0)
         if not direction:
+            i += 1
             continue
         candidate_count += 1
         adx = data.adx14.iloc[i]
@@ -131,11 +133,13 @@ def run_backtest(df, symbol, strategy, adx_threshold, cost_points):
             "adx14": float(adx) if pd.notna(adx) else None, "adx_filter_passed": bool(passed),
         })
         if not passed:
+            i += 1
             continue
         passed_count += 1
         entry_i = i + 1
         session = data.session.iloc[entry_i]
         if data.session.iloc[i] != session:
+            i += 1
             continue
         entry = float(data.open.iloc[entry_i])
         exit_i, exit_price, exit_reason = None, None, "session_end"
@@ -151,6 +155,7 @@ def run_backtest(df, symbol, strategy, adx_threshold, cost_points):
         if exit_i is None:
             session_rows = data.index[data.session == session]
             if len(session_rows) == 0:
+                i += 1
                 continue
             exit_i = int(session_rows[-1])
             exit_price = float(data.close.iloc[exit_i])
@@ -167,6 +172,8 @@ def run_backtest(df, symbol, strategy, adx_threshold, cost_points):
             "signal_vwap": round(float(data.vwap.iloc[i]), 4) if pd.notna(data.vwap.iloc[i]) else None,
             "signal_adx14": round(float(adx), 4) if pd.notna(adx) else None,
         })
+        # One position at a time: resume after the exit candle to avoid overlapping trades.
+        i = max(exit_i + 1, entry_i + 1)
 
     trade_frame = pd.DataFrame(trades, columns=TRADE_COLUMNS)
     signal_frame = pd.DataFrame(signals, columns=[
