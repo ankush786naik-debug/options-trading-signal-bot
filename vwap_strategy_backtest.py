@@ -27,13 +27,10 @@ def parse_timestamp(value):
     return stamp.tz_localize("Asia/Kolkata") if stamp.tzinfo is None else stamp.tz_convert("Asia/Kolkata")
 
 
-def date_range_one_year():
+def date_range_six_months():
+    # Upstox expired-instrument expiry discovery documents up to six months of history.
     end = datetime.now(IST).date() - timedelta(days=1)
-    try:
-        start = end.replace(year=end.year - 1)
-    except ValueError:
-        start = end.replace(year=end.year - 1, day=28)
-    return start, end
+    return end - timedelta(days=180), end
 
 
 def fetch_candles(client, instrument_key, start, end, interval=5):
