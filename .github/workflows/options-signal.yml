@@ -10,9 +10,11 @@ on:
         default: true
 
   schedule:
-    - cron: "50,55 3 * * 1-5"
-    - cron: "*/5 4-8 * * 1-5"
-    - cron: "0,5,10,15 9 * * 1-5"
+    # Offset by one minute to avoid busy scheduler boundaries.
+    # 09:21–14:41 IST, every 5 minutes on weekdays.
+    - cron: "51,56 3 * * 1-5"
+    - cron: "1-56/5 4-8 * * 1-5"
+    - cron: "1,6,11 9 * * 1-5"
 
 permissions:
   contents: read
@@ -24,7 +26,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 4
 
     steps:
       - name: Checkout repository
