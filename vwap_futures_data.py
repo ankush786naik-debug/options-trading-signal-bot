@@ -26,7 +26,13 @@ def load_bod_futures(exchange, underlying_key, symbol):
     response = requests.get(url, timeout=(15, 60))
     response.raise_for_status()
     try:
-        records = json.loads(gzip.decompress(response.content).decode("utf-8"))
+        raw = response.content
+        try:
+            raw = gzip.decompress(raw)
+        except OSError:
+            # requests may already have decompressed an HTTP gzip-encoded response.
+            pass
+        records = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise RuntimeError(f"Could not parse Upstox {exchange} instrument master") from error
 
