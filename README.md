@@ -36,6 +36,20 @@ The scanner is limited to 09:20–14:45 IST. The scheduled GitHub Actions workfl
 - Telegram message includes option premium, premium-based risk levels, underlying ATR invalidation/2R target, indicators, OI and volume.
 - Duplicate signals are suppressed and a 15-minute same-direction cooldown is applied.
 
+## Separate EMA 9/15 reversal setup (preliminary backtest only)
+
+This setup is kept separate from the current production scanner and does **not** send trade alerts yet. It uses only EMA 9 and EMA 15 on 5-minute underlying candles:
+
+- Bullish reversal: EMA 9 crosses above EMA 15.
+- Bearish reversal: EMA 9 crosses below EMA 15.
+- Entry: next 5-minute candle open after the crossover candle closes.
+- Exit: next candle open after the opposite crossover, or the last completed candle of that session.
+- No VWAP, RSI, ADX, volume, 15-minute confirmation, or other filters are applied.
+
+Run it from **Actions → EMA 9-15 Reversal Backtest → Run workflow**. It uses the existing `UPSTOX_ANALYTICS_TOKEN` secret and fetches the recent 5-minute candles for NIFTY, BANKNIFTY, and SENSEX. Download the `ema-9-15-reversal-backtest` artifact from the completed run; it contains the summary and individual trade logs.
+
+The current Upstox client fetches roughly 7 calendar days plus today's intraday data, so this is only a **preliminary short-sample check**. The report shows trade count, win rate, net underlying points, profit factor, and drawdown. These are underlying-index results, not option-premium accuracy or profitability; IV, theta, strike selection, slippage and brokerage are not modelled. Do not add it to live alerts or judge reliability from this short sample alone.
+
 ## Backtest indicator combinations
 
 Prepare separate historical underlying-index CSVs for 5-minute and 15-minute candles. Required headers:
