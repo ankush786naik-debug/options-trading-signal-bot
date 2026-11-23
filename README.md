@@ -36,19 +36,20 @@ The scanner is limited to 09:20–14:45 IST. The scheduled GitHub Actions workfl
 - Telegram message includes option premium, premium-based risk levels, underlying ATR invalidation/2R target, indicators, OI and volume.
 - Duplicate signals are suppressed and a 15-minute same-direction cooldown is applied.
 
-## Separate EMA 9/15 reversal setup (preliminary backtest only)
+## Separate EMA 9/15 crossover filter comparison (backtest only)
 
-This setup is kept separate from the current production scanner and does **not** send trade alerts yet. It uses only EMA 9 and EMA 15 on 5-minute underlying candles:
+This comparison is separate from the current production scanner and does **not** send trade alerts. It runs the same EMA 9/15 crossover entry and exit rules against four variants:
 
-- Bullish reversal: EMA 9 crosses above EMA 15.
-- Bearish reversal: EMA 9 crosses below EMA 15.
-- Entry: next 5-minute candle open after the crossover candle closes.
-- Exit: next candle open after the opposite crossover, or the last completed candle of that session.
-- No VWAP, RSI, ADX, volume, 15-minute confirmation, or other filters are applied.
+1. **Baseline:** EMA 9/15 crossover alone.
+2. **VWAP:** EMA 9/15 crossover; bullish entries require close above session VWAP and bearish entries require close below session VWAP.
+3. **ADX:** EMA 9/15 crossover with ADX(14) >= 20 (threshold can be changed).
+4. **VWAP + ADX:** both filters must pass.
 
-Run it from **Actions → EMA 9-15 Reversal Backtest → Run workflow**. It uses the existing `UPSTOX_ANALYTICS_TOKEN` secret and fetches the recent 5-minute candles for NIFTY, BANKNIFTY, and SENSEX. Download the `ema-9-15-reversal-backtest` artifact from the completed run; it contains the summary and individual trade logs.
+The entry is the next 5-minute candle open after the crossover candle closes. Exit is the next candle open after an opposite crossover, or the last completed candle of that session. VWAP resets each session. The ADX threshold defaults to 20 and can be adjusted in the workflow command with `--adx-threshold`.
 
-The backtest now requests a 12-month date range through Upstox V3 Historical Candle API, fetching history in 28-day chunks to stay within the API's one-month retrieval limit for 5-minute data. The workflow generates summary.csv, monthly_summary.csv, and per-index trade logs. Results are underlying-index points, not actual option-premium P&L; IV, theta, strike selection, and realistic option costs are not modelled. Do not enable live alerts based on this test alone.
+Run from **Actions → EMA 9-15 Reversal Backtest → Run workflow**. The script fetches 12 months of 5-minute candles for NIFTY, BANKNIFTY, and SENSEX. Download the `ema-9-15-filter-comparison-12-months` artifact. It includes strategy-by-index summary, monthly summary, and individual trade logs for all four variants.
+
+Results are underlying-index points, not actual option-premium P&L. Option strike selection, premium/IV changes, theta, brokerage, taxes, and realistic slippage are not modelled. The results compare filter accuracy/consistency only and do not establish live options profitability. The production signal bot is unchanged.
 
 ## Backtest indicator combinations
 
