@@ -108,8 +108,8 @@ def make_variants(df):
         "RSI threshold cross": (rsi_up, rsi_down),
         "ADX trend filter": (cross_up & adx_ok, cross_down & adx_ok),
         "VWAP filter": (cross_up & vwap_up, cross_down & vwap_down),
-        "EMA + RSI": (cross_up & rsi_up, cross_down & rsi_down),
-        "EMA + VWAP + RSI": (cross_up & vwap_up & rsi_up, cross_down & vwap_down & rsi_down),
+        "EMA + RSI": (cross_up & (df.rsi > 60), cross_down & (df.rsi < 40)),
+        "EMA + VWAP + RSI": (cross_up & vwap_up & (df.rsi > 60), cross_down & vwap_down & (df.rsi < 40)),
         "EMA + VWAP + RSI + ADX": (cross_up & vwap_up & rsi_up & adx_ok & vol_ok,
                                     cross_down & vwap_down & rsi_down & adx_ok & vol_ok),
         "Full 15m + pullback setup": (
@@ -135,8 +135,11 @@ def simulate(df, long_signal, short_signal, stop_atr=1.5, target_r=2.0, max_bars
         risk = float(df.atr.iloc[i]) * stop_atr
         stop = entry - direction * risk
         target = entry + direction * risk * target_r
-        exit_price, exit_i, reason = float(df.close.iloc[min(entry_i + max_bars, len(df)-1)]), min(entry_i + max_bars, len(df)-1), "time"
-        for j in range(entry_i, min(entry_i + max_bars + 1, len(df))):
+        exit_i = min(entry_i + max_bars, len(df) - 1)
+        while exit_i > entry_i and df.session.iloc[exit_i] != df.session.iloc[entry_i]:
+            exit_i -= 1
+        exit_price, reason = float(df.close.iloc[exit_i]), "time"
+        for j in range(entry_i, exit_i + 1):
             hi, lo = float(df.high.iloc[j]), float(df.low.iloc[j])
             stop_hit = lo <= stop if direction == 1 else hi >= stop
             target_hit = hi >= target if direction == 1 else lo <= target
