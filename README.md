@@ -57,5 +57,14 @@ Run unit tests:
 python -m unittest discover -s tests
 ```
 
+## Daily NSE Swing Stock Scanner
+
+A separate project scans NSE cash equities for daily swing-trading BUY setups (₹200–₹1,000 price range by default) and sends qualifying signals to Telegram after market close. It has its own scheduled workflow and does not modify the index-options scanner.
+
+- Project: [daily_stock_scanner](daily_stock_scanner/README.md)
+- Workflow: [Daily NSE Stock Scanner](.github/workflows/daily-stock-scanner.yml)
+- Uses the existing Upstox and Telegram repository secrets
+- Alerts only; no order execution
+
 ## Safety
 This is a signal and paper-analysis system only. It does not place live orders. Signals are not guaranteed to be profitable.
