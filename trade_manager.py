@@ -76,6 +76,40 @@ def signal_exists(instrument_key, timestamp):
     )
 
 
+
+def signal_in_cooldown(symbol, side, timestamp, cooldown_minutes=15):
+    """Prevent repeat same-direction alerts for the same index during cooldown."""
+    if not symbol or side not in ("CALL", "PUT") or not timestamp:
+        raise ValueError("Symbol, side and timestamp are required")
+    try:
+        current = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=IST)
+        current = current.astimezone(IST)
+    except ValueError:
+        return False
+
+    state = load_state()
+    for item in state["signals"]:
+        if not isinstance(item, dict):
+            continue
+        if item.get("symbol") != symbol or item.get("side") != side:
+            continue
+        recorded = item.get("timestamp")
+        if not recorded:
+            continue
+        try:
+            previous = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=IST)
+            previous = previous.astimezone(IST)
+        except ValueError:
+            continue
+        elapsed = (current - previous).total_seconds() / 60
+        if 0 <= elapsed < cooldown_minutes:
+            return True
+    return False
+
 def record_signal(signal):
 
     required = [
