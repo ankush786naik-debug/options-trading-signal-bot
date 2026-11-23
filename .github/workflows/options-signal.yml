@@ -10,7 +10,9 @@ on:
         default: true
 
   schedule:
-    - cron: "*/5 3-10 * * 1-5"
+    - cron: "50,55 3 * * 1-5"
+    - cron: "*/5 4-8 * * 1-5"
+    - cron: "0,5,10,15 9 * * 1-5"
 
 permissions:
   contents: read
