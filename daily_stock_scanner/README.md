@@ -4,7 +4,7 @@ Independent daily swing scanner for NSE cash equities. It uses the Upstox BOD NS
 
 ## Scope
 - NSE listed cash equity instruments (NSE_EQ, equity instrument type)
-- Price filter: ₹200–₹1,000 (configurable)
+- No stock price boundary; scans all NSE EQ stocks with valid LTP
 - Daily candles; scans after market close on weekdays
 - Support/pullback/reversal and trend-confirmation scoring
 - Telegram alerts only; no order placement
@@ -28,7 +28,6 @@ The daily alert ranks at most five stocks from the strongest technical candidate
 
 ## Signal method
 The scanner scores a setup using:
-- Price within configured range
 - Near 20/50-day EMA or recent support zone
 - Medium-term trend confirmation
 - RSI recovery / bullish momentum
@@ -44,11 +43,9 @@ A BUY alert is a technical watchlist signal, not a guaranteed profitable trade. 
 
 ## Configuration
 Environment variables:
-- MIN_PRICE (default 200)
-- MAX_PRICE (default 1000)
 - MIN_AVG_VALUE (default ₹1 crore average daily traded value over 20 sessions)
 - MIN_SCORE (default 70)
 - MAX_WORKERS (default 4; rate-limit-conscious)
 - ALERTS_ENABLED (default true when Telegram secrets exist)
 
-The NSE instrument master is refreshed each run from Upstox's official BOD JSON file. Upstox historical candles are fetched one instrument at a time; the scanner throttles requests and reports failures rather than fabricating data.
+The NSE instrument master is refreshed each run from Upstox's official BOD JSON file, including ISINs required for fundamentals. There is no price boundary. The scanner fetches historical candles for the full universe and throttles requests to respect API limits; the full scan can take around an hour, depending on valid instruments and API response times.
