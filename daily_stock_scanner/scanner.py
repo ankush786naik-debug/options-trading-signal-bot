@@ -122,8 +122,7 @@ def fetch_ltp_batch(instruments: list[dict], headers: dict) -> dict[str, float]:
         for response_key, quote_data in data.items():
             if not isinstance(quote_data, dict):
                 continue
-            try:
-                price = float(quote_data.get("last_price", 0))
+            price = float(quote_data.get("last_price", 0))
             if price <= 0:
                 continue
             # Upstox LTP v2 response object keys are display keys such as
