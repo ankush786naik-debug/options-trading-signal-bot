@@ -10,7 +10,7 @@ from strategy import generate_signal
 from option_selector import select_option
 from risk_manager import calculate_trade
 from telegram_bot import send_message, format_signal
-from trade_manager import signal_exists, record_signal
+from trade_manager import signal_exists, signal_in_cooldown, record_signal
 
 IST = ZoneInfo("Asia/Kolkata")
 SCAN_INTERVAL_SECONDS = 60
@@ -112,6 +112,10 @@ def scan_underlying(client, name, instrument_key):
     final_signal = {**signal, **trade, "expiry": expiry}
     if signal_exists(trade["instrument_key"], signal["timestamp"]):
         logging.info("%s: Duplicate signal ignored", name)
+        return
+
+    if signal_in_cooldown(signal["symbol"], signal["side"], signal["timestamp"]):
+        logging.info("%s: Same-direction signal is in 15-minute cooldown", name)
         return
 
     message = format_signal(final_signal)
