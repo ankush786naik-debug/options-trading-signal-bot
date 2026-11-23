@@ -377,31 +377,63 @@ def main():
                 log.warning("Skip %s: %s", item["symbol"], str(exc)[:180])
 
     results.sort(key=lambda item: (-item["score"], item["risk_pct"], item["symbol"]))
+    technical_pool = results[:MAX_FUNDAMENTAL_CANDIDATES]
+    ranked = []
+    fundamental_failures = 0
+    log.info("Fundamental analysis for top %d technical candidates", len(technical_pool))
+    for signal in technical_pool:
+        instrument = next((x for x in price_candidates if x["symbol"] == signal["symbol"]), None)
+        if not instrument:
+            continue
+        try:
+            fundamentals = score_fundamentals(instrument.get("isin", ""), headers)
+            if not fundamentals:
+                fundamental_failures += 1
+                log.info("Skip %s: insufficient fundamental coverage", signal["symbol"])
+                continue
+            signal.update(fundamentals)
+            if signal["fundamental_score"] < FUNDAMENTAL_MIN_SCORE:
+                log.info("Skip %s: fundamental score %d below minimum %d",
+                         signal["symbol"], signal["fundamental_score"], FUNDAMENTAL_MIN_SCORE)
+                continue
+            signal["technical_score"] = signal["score"]
+            signal["score"] = round(0.45 * signal["technical_score"] + 0.55 * signal["fundamental_score"])
+            ranked.append(signal)
+        except Exception as exc:
+            fundamental_failures += 1
+            log.warning("Fundamentals unavailable for %s: %s", signal["symbol"], str(exc)[:180])
+
+    ranked.sort(key=lambda item: (-item["score"], -item["fundamental_score"],
+                                  -item["technical_score"], item["risk_pct"], item["symbol"]))
+    results = ranked[:5]
+
     state = load_state()
     today_key = datetime.now(IST).date().isoformat()
     sent = state.setdefault("sent", {})
     already = set(sent.get(today_key, []))
     new_signals = [s for s in results if s["symbol"] not in already]
 
-    log.info("Scan complete: %d qualifying setups, %d new alerts, %d candle failures",
-             len(results), len(new_signals), failures)
+    log.info("Final Top 5: %d stocks; %d new alerts; %d candle failures; %d fundamental failures",
+             len(results), len(new_signals), failures, fundamental_failures)
     header = (
-        f"📊 Daily NSE Swing Scanner — {today_key}\n"
-        f"Universe: {len(universe)} NSE EQ | Price-range candidates: {len(price_candidates)}\n"
-        f"Qualifying BUY setups: {len(results)} | New today: {len(new_signals)}\n"
-        f"Filter: ₹{MIN_PRICE:.0f}–₹{MAX_PRICE:.0f} | Score ≥ {MIN_SCORE}\n"
-        f"All alerts are paper analysis only; no orders placed."
+        f"🏆 TOP NSE SWING STOCKS — {today_key}\n"
+        f"Universe: {len(universe)} NSE EQ | Price candidates: {len(price_candidates)}\n"
+        f"Technical setups: {len(technical_pool)} screened with Upstox fundamentals\n"
+        f"Top stocks passing fundamental score ≥ {FUNDAMENTAL_MIN_SCORE}: {len(results)} (max 5)\n"
+        f"Price filter: ₹{MIN_PRICE:.0f}–₹{MAX_PRICE:.0f} | Fundamental/technical blend: 55%/45%\n"
+        f"Fundamental data: Upstox financials, ratios, cash flow and balance sheet\n"
+        f"Signal-only research; no orders placed. Targets are not guaranteed."
     )
     messages = [header]
     messages.extend(format_signal(s) for s in new_signals)
+    if not results:
+        messages.append("No stocks met the combined fundamental + technical quality threshold today. No forced picks.")
     send_batched(messages)
 
     sent[today_key] = sorted(already | {s["symbol"] for s in new_signals})
-    # Keep the state file compact.
     for old_day in sorted(sent)[:-10]:
         sent.pop(old_day, None)
     save_state(state)
-
 
 if __name__ == "__main__":
     main()
