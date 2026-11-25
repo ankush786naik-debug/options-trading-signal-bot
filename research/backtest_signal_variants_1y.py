@@ -370,5 +370,5 @@ def main():
     print("Compare holdout results, trade count, profit factor and drawdown; don't select by win rate alone.")
 
 
-if __.__name__ == "__main__":
+if __name__ == "__main__":
     main()
