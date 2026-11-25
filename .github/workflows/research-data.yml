@@ -1,0 +1,47 @@
+name: Research - Download Historical Index Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Calendar days of historical data (30-365)"
+        required: true
+        type: choice
+        options:
+          - "365"
+          - "180"
+          - "90"
+        default: "365"
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install research dependencies
+        run: python -m pip install --upgrade pip requests pandas
+
+      - name: Download historical candles from Upstox
+        env:
+          UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
+          RESEARCH_LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+        run: python research/data_download.py
+
+      - name: Upload CSV data as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: index-historical-data-${{ github.run_id }}
+          path: research/data/*.csv
+          if-no-files-found: error
+          retention-days: 14
