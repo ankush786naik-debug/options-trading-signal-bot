@@ -19,7 +19,7 @@ import requests
 IST = ZoneInfo("Asia/Kolkata")
 TOKEN = os.getenv("UPSTOX_ANALYTICS_TOKEN", "").strip()
 LOOKBACK_DAYS = int(os.getenv("RESEARCH_LOOKBACK_DAYS", "365"))
-OUT_DIR = Path("research/data")
+OUT_DIR = Path("data/backtest/underlying")
 
 INSTRUMENTS = {
     "NIFTY": "NSE_INDEX|Nifty 50",
@@ -78,8 +78,15 @@ def download_one(session: requests.Session, symbol: str, key: str,
         raise RuntimeError(f"No candles returned for {symbol} {minutes}m")
 
     columns = ["timestamp", "open", "high", "low", "close", "volume", "open_interest"]
-    rows = [row[:7] for row in records if isinstance(row, list) and len(row) >= 6]
-    df = pd.DataFrame(rows, columns=columns[:len(rows[0])])
+    rows = []
+    for row in records:
+        if not isinstance(row, list) or len(row) < 6:
+            continue
+        values = list(row[:7])
+        if len(values) == 6:
+            values.append(None)
+        rows.append(values)
+    df = pd.DataFrame(rows, columns=columns)
 
     # Upstox timestamps include an IST offset. Preserve that timestamp string
     # in the CSV and use UTC-normalized values only for deduplication/sorting.
