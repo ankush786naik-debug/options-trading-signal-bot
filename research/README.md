@@ -74,3 +74,35 @@ The backtest uses next-candle option open as entry, applies configurable premium
 ## Important
 
 I have committed the actual-options backtest code, but have not run it on your account's historical option data. The report cannot be produced until the historical contract manifest and option candles are available. A 70–80% win rate is not guaranteed; compare win rate with profit factor, average return, trade count and drawdown, and validate on dates not used to tune the strategy before changing the live bot.
+
+
+## Download one year of underlying index data
+
+The separate manual GitHub Actions workflow `Research - Download Historical Index Data` downloads Upstox V3 index candles for NIFTY, BANKNIFTY and SENSEX:
+
+- 1-minute candles for entry/execution timing checks
+- 5-minute candles for strategy entry signals
+- 15-minute candles for trend confirmation
+
+Default period is 365 calendar days ending yesterday in IST. The downloader uses 28-day request chunks because Upstox limits V3 minute-candle requests (1–15 minute intervals) to one month. Minute history is documented as available from January 2022.
+
+The workflow uses the existing GitHub secret `UPSTOX_ANALYTICS_TOKEN`. It does not print or commit the token, does not place orders, and does not send Telegram alerts.
+
+After this workflow is merged into the default branch:
+
+1. Open **GitHub → Actions**.
+2. Select **Research - Download Historical Index Data**.
+3. Select **Run workflow** and choose 365 days.
+4. Download the workflow artifact named `index-historical-data-<run-id>`.
+5. Extract the ZIP.
+
+The artifact contains:
+
+- `NIFTY_1m.csv`, `NIFTY_5m.csv`, `NIFTY_15m.csv`
+- `BANKNIFTY_1m.csv`, `BANKNIFTY_5m.csv`, `BANKNIFTY_15m.csv`
+- `SENSEX_1m.csv`, `SENSEX_5m.csv`, `SENSEX_15m.csv`
+
+CSV files are stored in the artifact under `data/backtest/underlying/`, matching the actual-options backtest input paths. They are not committed to Git because generated market data should be kept out of the source repository.
+
+Official API documentation: [Upstox Historical Candle V3](https://upstox.com/developer/api-documentation/v3/get-historical-candle-data/)
+
