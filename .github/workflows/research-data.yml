@@ -42,6 +42,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: index-historical-data-${{ github.run_id }}
-          path: research/data/*.csv
+          path: data/backtest/underlying/*.csv
           if-no-files-found: error
           retention-days: 14
