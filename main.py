@@ -11,6 +11,7 @@ from option_selector import select_option
 from risk_manager import calculate_trade
 from telegram_bot import send_message, format_signal
 from trade_manager import signal_exists, signal_in_cooldown, record_signal
+from research.intraday_bias.nifty_intraday_signal import run as run_nifty_bias
 
 IST = ZoneInfo("Asia/Kolkata")
 SCAN_INTERVAL_SECONDS = 300
@@ -155,6 +156,12 @@ def run_scan_cycle(client):
         except Exception as error:
             logging.exception("Failed scanning %s", name)
             statuses.append(f"{name}: SCAN ERROR — {type(error).__name__}")
+
+    try:
+        statuses.append(run_nifty_bias(send_telegram=False))
+    except Exception as error:
+        logging.exception("NIFTY intraday bias report failed")
+        statuses.append(f"NIFTY BIAS: DATA/REPORT ERROR — {type(error).__name__}")
 
     message = (
         f"🤖 OPTIONS BOT STATUS\n{stamp}\n"
