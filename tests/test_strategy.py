@@ -1,43 +1,54 @@
 import unittest
 import pandas as pd
-
 from strategy import analyze_setup
 
 
-def frame(rows):
-    return pd.DataFrame(rows)
+class DTPWithEMATests(unittest.TestCase):
+    def make_frame(self, **updates):
+        row = {
+            "timestamp": pd.Timestamp("2026-01-01 10:00", tz="UTC"),
+            "close": 25000.0,
+            "atr14": 100.0,
+            "ema20": 25050.0,
+            "ema50": 25000.0,
+            "dtp_state": 1,
+            "dtp_buy": True,
+            "dtp_sell": False,
+        }
+        row.update(updates)
+        return pd.DataFrame([row, row])
 
-
-class BuyerStrategyTests(unittest.TestCase):
-    def setUp(self):
-        self.fast = []
-        for i in range(60):
-            self.fast.append({
-                "timestamp": pd.Timestamp("2026-01-01 09:15") + pd.Timedelta(minutes=5 * i),
-                "open": 100.0, "high": 102.0, "low": 99.8, "close": 101.0,
-                "volume": 150.0, "volume_avg": 100.0,
-                "ema9": 100.5, "ema21": 100.0, "rsi": 65.0,
-                "adx": 28.0, "atr": 2.0, "vwap": 100.0,
-            })
-        self.fast[-1].update({"open": 101.0, "close": 102.0, "low": 100.4})
-        self.slow = [{"close": 101.5, "ema9": 101.0, "ema21": 100.5}]
-
-    def test_valid_bullish_setup_returns_call(self):
-        result = analyze_setup(frame(self.fast), frame(self.slow), "TEST")
+    def test_bullish_dtp_flip_with_ema_alignment_returns_call(self):
+        result = analyze_setup(self.make_frame(), "TEST")
         self.assertIsNotNone(result)
         self.assertEqual(result["side"], "CALL")
-        self.assertAlmostEqual(result["underlying_stop"], 99.0)
-        self.assertAlmostEqual(result["underlying_target"], 108.0)
+        self.assertEqual(result["underlying_stop"], 24850.0)
+        self.assertEqual(result["underlying_target"], 25300.0)
+        self.assertEqual(result["ema20"], 25050.0)
 
-    def test_volume_confirmation_blocks_signal(self):
-        self.fast[-1]["volume"] = 50.0
-        result = analyze_setup(frame(self.fast), frame(self.slow), "TEST")
+    def test_bullish_signal_blocked_when_ema20_below_ema50(self):
+        result = analyze_setup(self.make_frame(ema20=24900.0, ema50=25000.0), "TEST")
         self.assertIsNone(result)
 
-    def test_15m_disagreement_blocks_signal(self):
-        self.slow[0]["ema9"] = 100.0
-        self.slow[0]["ema21"] = 100.5
-        result = analyze_setup(frame(self.fast), frame(self.slow), "TEST")
+    def test_bearish_dtp_flip_with_ema_alignment_returns_put(self):
+        result = analyze_setup(self.make_frame(
+            ema20=24900.0, ema50=25000.0, dtp_state=-1,
+            dtp_buy=False, dtp_sell=True
+        ), "TEST")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["side"], "PUT")
+        self.assertEqual(result["underlying_stop"], 25150.0)
+        self.assertEqual(result["underlying_target"], 24700.0)
+
+    def test_bearish_signal_blocked_when_ema20_above_ema50(self):
+        result = analyze_setup(self.make_frame(
+            dtp_buy=False, dtp_sell=True, dtp_state=-1,
+            ema20=25100.0, ema50=25000.0
+        ), "TEST")
+        self.assertIsNone(result)
+
+    def test_no_signal_without_dtp_flip(self):
+        result = analyze_setup(self.make_frame(dtp_buy=False, dtp_sell=False), "TEST")
         self.assertIsNone(result)
 
 

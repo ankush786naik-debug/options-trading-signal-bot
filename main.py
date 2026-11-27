@@ -37,11 +37,9 @@ def parse_candle_time(candle):
 def get_completed_candles(candles, interval):
     if not candles:
         return []
-
     now = datetime.now(IST)
     completed = []
     seen = set()
-
     for candle in candles:
         try:
             if not isinstance(candle, list) or len(candle) < 6:
@@ -51,7 +49,6 @@ def get_completed_candles(candles, interval):
                 completed.append((candle_time, candle))
         except (ValueError, TypeError, IndexError):
             logging.warning("Skipping invalid candle timestamp")
-
     completed.sort(key=lambda item: item[0])
     result = []
     for candle_time, candle in completed:
@@ -73,62 +70,45 @@ def candle_data_is_fresh(candles, interval):
 
 
 def scan_underlying(client, name, instrument_key):
-    logging.info("Scanning %s", name)
-    raw_5m = client.intraday_candles(instrument_key, 5)
+    logging.info("Scanning %s with DTP + EMA20/50 on 15m", name)
     raw_15m = client.intraday_candles(instrument_key, 15)
-    candles5 = get_completed_candles(raw_5m, 5)
     candles15 = get_completed_candles(raw_15m, 15)
+    logging.info("%s completed 15m candles: %d", name, len(candles15))
 
-    logging.info("%s candle counts: 5m=%d, 15m=%d", name, len(candles5), len(candles15))
-
-    if len(candles5) < 50 or len(candles15) < 50:
-        logging.warning("%s: Insufficient completed candles. 5m=%d, 15m=%d", name, len(candles5), len(candles15))
-        return f"{name}: NO TRADE — insufficient candles (5m={len(candles5)}, 15m={len(candles15)})"
-
-    if not candle_data_is_fresh(candles5, 5):
-        logging.warning("%s: 5-minute data is stale", name)
-        return f"{name}: DATA WAIT — 5m candles stale"
+    if len(candles15) < 50:
+        logging.warning("%s: insufficient 15m candles (%d)", name, len(candles15))
+        return f"{name}: NO TRADE — insufficient 15m candles ({len(candles15)})"
     if not candle_data_is_fresh(candles15, 15):
         logging.warning("%s: 15-minute data is stale", name)
         return f"{name}: DATA WAIT — 15m candles stale"
 
-    signal = generate_signal(name, candles5, candles15)
+    signal = generate_signal(name, candles15)
     if not signal:
-        logging.info("%s: NO TRADE", name)
-        return f"{name}: NO TRADE — setup conditions not met"
+        return f"{name}: NO TRADE — no confirmed DTP flip with EMA20/50 alignment"
 
     expiry = client.get_nearest_expiry(instrument_key)
     chain = client.option_chain(instrument_key, expiry)
     option = select_option(chain, signal["side"])
     if not option:
-        logging.info("%s: No liquid option found", name)
         return f"{name}: NO TRADE — no liquid ATM/ITM option"
 
     trade = calculate_trade(option)
     if not trade:
-        logging.info("%s: Invalid option premium", name)
         return f"{name}: NO TRADE — invalid option premium"
 
     final_signal = {**signal, **trade, "expiry": expiry}
     if signal_exists(trade["instrument_key"], signal["timestamp"]):
-        logging.info("%s: Duplicate signal ignored", name)
         return f"{name}: NO NEW ALERT — duplicate signal"
-
     if signal_in_cooldown(signal["symbol"], signal["side"], signal["timestamp"]):
-        logging.info("%s: Same-direction signal is in 15-minute cooldown", name)
         return f"{name}: NO NEW ALERT — 15m same-direction cooldown"
 
     message = format_signal(final_signal)
     logging.info(message)
     delivered = send_message(message)
-
     if delivered:
         record_signal(final_signal)
-        logging.info("%s: Signal sent and recorded", name)
-        return f"{name}: SIGNAL SENT — option buying alert delivered"
-    else:
-        logging.warning("%s: Telegram delivery failed; signal not recorded", name)
-        return f"{name}: ALERT DELIVERY FAILED"
+        return f"{name}: SIGNAL SENT — paper option alert delivered"
+    return f"{name}: ALERT DELIVERY FAILED"
 
 
 def run_scan_cycle(client):
@@ -155,11 +135,10 @@ def run_scan_cycle(client):
         except Exception as error:
             logging.exception("Failed scanning %s", name)
             statuses.append(f"{name}: SCAN ERROR — {type(error).__name__}")
-
     message = (
         f"🤖 OPTIONS BOT STATUS\n{stamp}\n"
-        "Scan completed.\n\n"
-        + "\n".join(statuses)
+        "Strategy: Dynamic Trend Pivots (reconstructed) + EMA20/EMA50 alignment\n"
+        "Scan completed.\n\n" + "\n".join(statuses)
         + "\n\nNext scheduled scan: approximately 5 minutes."
     )
     logging.info("Market scan completed. Sending status heartbeat.")
@@ -175,32 +154,22 @@ def main():
     client = UpstoxClient()
     logging.info("OPTIONS TRADING SIGNAL BOT STARTED")
     logging.info("Monitoring NIFTY, BANKNIFTY and SENSEX")
-    logging.info("Telegram alerts enabled: configuration validated")
-
+    logging.info("Paper alerts only; live orders disabled")
     if RUN_ONCE:
         run_scan_cycle(client)
         logging.info("RUN_ONCE=true: exiting after one scan cycle.")
         return
-
     while True:
         try:
-            # The scheduled GitHub Actions job stays alive for the market session.
-            # Stop after the final configured scan window to avoid post-market
-            # "outside market window" Telegram messages.
             if datetime.now(IST).time() >= time(14, 45):
                 logging.info("Market scan session finished for today.")
                 break
-
             run_scan_cycle(client)
-
             if datetime.now(IST).time() >= time(14, 45):
                 logging.info("Market scan session finished for today.")
                 break
-
             now = datetime.now(IST)
-            seconds_to_next = SCAN_INTERVAL_SECONDS - (
-                (now.minute * 60 + now.second) % SCAN_INTERVAL_SECONDS
-            )
+            seconds_to_next = SCAN_INTERVAL_SECONDS - ((now.minute * 60 + now.second) % SCAN_INTERVAL_SECONDS)
             logging.info("Next scan at the next 5-minute boundary (%s seconds).", seconds_to_next)
             sleep(seconds_to_next)
         except KeyboardInterrupt:
