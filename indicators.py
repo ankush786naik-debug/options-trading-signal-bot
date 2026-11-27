@@ -1,8 +1,7 @@
-"""Dynamic Trend Pivots (reconstructed) and EMA20/EMA50 indicators.
+"""Exact Python port of the core signal calculations in BOSWaves DTP Pine v6.
 
-IMPORTANT: BOSWaves' original Pine source is not included. This implementation
-reconstructs the documented adaptive-band / conviction-pulse concept and the
-visible settings; it is not an exact Pine-script port.
+The main trend-flip labels reproduce Pine's crossover/crossunder + lastSignal
+state logic. Display smoothing, plots, labels and drawing objects are omitted.
 """
 import logging
 import numpy as np
@@ -10,7 +9,7 @@ import pandas as pd
 
 DTP_TREND_LENGTH = 21
 DTP_CLOSE_ZONE = 0.30
-DTP_PULSE_DECAY = 0.80
+DTP_PULSE_DECAY = 0.85
 DTP_PULSE_CAP = 8.0
 DTP_MAD_LENGTH = 17
 DTP_BAND_MIN = 1.4
@@ -36,70 +35,103 @@ def prepare_dataframe(candles):
         return None
 
 
-def calculate_indicators(candles):
-    """Calculate DTP-like trend bands, DTP flips, EMA20/50 and ATR14.
+def _wilder_rma(series, length):
+    """Pine ta.rma equivalent: SMA seed, then Wilder recursive smoothing."""
+    values = series.astype(float).to_numpy()
+    out = np.full(len(values), np.nan, dtype=float)
+    if len(values) < length:
+        return pd.Series(out, index=series.index)
+    seed_idx = length - 1
+    seed = np.nanmean(values[:length])
+    if not np.isfinite(seed):
+        return pd.Series(out, index=series.index)
+    out[seed_idx] = seed
+    alpha = 1.0 / length
+    for i in range(length, len(values)):
+        if np.isfinite(values[i]) and np.isfinite(out[i - 1]):
+            out[i] = alpha * values[i] + (1.0 - alpha) * out[i - 1]
+    return pd.Series(out, index=series.index)
 
-    The DTP signal is only confirmed on candle close. The original Pine source
-    was not verified, so the DTP section is a transparent reconstruction.
-    ATR is retained only for underlying risk levels, not for signal filtering.
+
+def calculate_indicators(candles):
+    """Calculate DTP core signals, EMA20/50 and ATR14.
+
+    Pine source: Dynamic Trend Pivots [BOSWaves], supplied by user.
+    Main signals are the Pine switchUp/switchDown events, not raw band
+    crossings. Evaluate only completed candles in the caller.
     """
     df = prepare_dataframe(candles)
     if df is None or len(df) < 50:
         return None
     try:
-        close, high, low = df["close"], df["high"], df["low"]
+        close, high, low, open_ = df["close"], df["high"], df["low"], df["open"]
         df["ema20"] = close.ewm(span=20, adjust=False).mean()
         df["ema50"] = close.ewm(span=50, adjust=False).mean()
-        baseline = close.ewm(span=DTP_TREND_LENGTH, adjust=False).mean()
-        df["dtp_baseline"] = baseline
 
-        candle_range = (high - low).replace(0, np.nan)
-        close_position = ((close - low) / candle_range).fillna(0.5)
-        up_close = close > close.shift(1)
-        down_close = close < close.shift(1)
-        bull_condition = up_close & (close_position >= 1.0 - DTP_CLOSE_ZONE)
-        bear_condition = down_close & (close_position <= DTP_CLOSE_ZONE)
+        # Pine: basis = ta.ema(close, 21)
+        basis = close.ewm(span=DTP_TREND_LENGTH, adjust=False).mean()
+        df["dtp_baseline"] = basis
+
+        # Pine conviction candles use close location and candle direction (close vs open).
+        bar_range = (high - low).clip(lower=1e-8)
+        close_loc = (close - low) / bar_range
+        bull_conv = (close_loc >= (1.0 - DTP_CLOSE_ZONE)) & (close > open_)
+        bear_conv = (close_loc <= DTP_CLOSE_ZONE) & (close < open_)
 
         bull_pulse = np.zeros(len(df), dtype=float)
         bear_pulse = np.zeros(len(df), dtype=float)
         for i in range(len(df)):
-            prev_bull = bull_pulse[i - 1] if i else 0.0
-            prev_bear = bear_pulse[i - 1] if i else 0.0
-            bull_pulse[i] = min(DTP_PULSE_CAP, prev_bull + 1.0) if bool(bull_condition.iloc[i]) else prev_bull * DTP_PULSE_DECAY
-            bear_pulse[i] = min(DTP_PULSE_CAP, prev_bear + 1.0) if bool(bear_condition.iloc[i]) else prev_bear * DTP_PULSE_DECAY
-        conviction = np.maximum(bull_pulse, bear_pulse) / DTP_PULSE_CAP
-        band_multiplier = DTP_BAND_MIN + (DTP_BAND_MAX - DTP_BAND_MIN) * (1.0 - conviction)
+            bp = bull_pulse[i - 1] if i else 0.0
+            sp = bear_pulse[i - 1] if i else 0.0
+            bull_pulse[i] = min(bp + 1.0, DTP_PULSE_CAP) if bool(bull_conv.iloc[i]) else bp * DTP_PULSE_DECAY
+            bear_pulse[i] = min(sp + 1.0, DTP_PULSE_CAP) if bool(bear_conv.iloc[i]) else sp * DTP_PULSE_DECAY
 
-        deviation = (close - baseline).abs().rolling(DTP_MAD_LENGTH, min_periods=DTP_MAD_LENGTH).mean()
-        df["dtp_upper"] = baseline + deviation * band_multiplier
-        df["dtp_lower"] = baseline - deviation * band_multiplier
+        saturation = np.maximum(bull_pulse, bear_pulse) / DTP_PULSE_CAP
         df["dtp_bull_pulse"] = bull_pulse
         df["dtp_bear_pulse"] = bear_pulse
+        df["dtp_saturation"] = saturation
 
+        # Pine: mean = sma(close, 17); mad = sma(abs(close - mean), 17)
+        mean = close.rolling(DTP_MAD_LENGTH, min_periods=DTP_MAD_LENGTH).mean()
+        mad = (close - mean).abs().rolling(DTP_MAD_LENGTH, min_periods=DTP_MAD_LENGTH).mean()
+        band_mult = DTP_BAND_MAX - (DTP_BAND_MAX - DTP_BAND_MIN) * saturation
+        upper = basis + mad * band_mult
+        lower = basis - mad * band_mult
+        df["dtp_mad"] = mad
+        df["dtp_band_multiplier"] = band_mult
+        df["dtp_upper"] = upper
+        df["dtp_lower"] = lower
+
+        # Pine ta.crossover(close, upper) / ta.crossunder(close, lower).
+        long_cond = (close > upper) & (close.shift(1) <= upper.shift(1))
+        short_cond = (close < lower) & (close.shift(1) >= lower.shift(1))
         state = np.zeros(len(df), dtype=np.int8)
-        buy = np.zeros(len(df), dtype=bool)
-        sell = np.zeros(len(df), dtype=bool)
+        buy = np.zeros(len(df), dtype=bool)   # Pine switchUp: previous state -1 -> 1
+        sell = np.zeros(len(df), dtype=bool)  # Pine switchDown: previous state 1 -> -1
         for i in range(1, len(df)):
-            state[i] = state[i - 1]
-            upper, lower = df["dtp_upper"].iloc[i], df["dtp_lower"].iloc[i]
-            prev_upper, prev_lower = df["dtp_upper"].iloc[i - 1], df["dtp_lower"].iloc[i - 1]
-            if pd.notna(upper) and pd.notna(prev_upper) and close.iloc[i] > upper and close.iloc[i - 1] <= prev_upper:
+            previous_state = state[i - 1]
+            state[i] = previous_state
+            if bool(long_cond.iloc[i]):
                 state[i] = 1
-            elif pd.notna(lower) and pd.notna(prev_lower) and close.iloc[i] < lower and close.iloc[i - 1] >= prev_lower:
+            elif bool(short_cond.iloc[i]):
                 state[i] = -1
-            buy[i] = state[i] == 1 and state[i - 1] != 1
-            sell[i] = state[i] == -1 and state[i - 1] != -1
+            buy[i] = state[i] == 1 and previous_state == -1
+            sell[i] = state[i] == -1 and previous_state == 1
+
+        df["dtp_long_condition"] = long_cond.fillna(False)
+        df["dtp_short_condition"] = short_cond.fillna(False)
         df["dtp_state"] = state
         df["dtp_buy"] = buy
         df["dtp_sell"] = sell
 
-        previous_close = close.shift(1)
+        # Pine ta.atr(14) = Wilder RMA of true range.
+        prev_close = close.shift(1)
         true_range = pd.concat([
             high - low,
-            (high - previous_close).abs(),
-            (low - previous_close).abs(),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
         ], axis=1).max(axis=1)
-        df["atr14"] = true_range.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+        df["atr14"] = _wilder_rma(true_range, 14)
 
         df = df.replace([np.inf, -np.inf], np.nan)
         return df
