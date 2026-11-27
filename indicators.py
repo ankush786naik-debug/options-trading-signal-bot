@@ -1,326 +1,108 @@
+"""Dynamic Trend Pivots (reconstructed) and EMA20/EMA50 indicators.
 
+IMPORTANT: BOSWaves' original Pine source is not included. This implementation
+reconstructs the documented adaptive-band / conviction-pulse concept and the
+visible settings; it is not an exact Pine-script port.
+"""
 import logging
-
 import numpy as np
 import pandas as pd
 
+DTP_TREND_LENGTH = 21
+DTP_CLOSE_ZONE = 0.30
+DTP_PULSE_DECAY = 0.80
+DTP_PULSE_CAP = 8.0
+DTP_MAD_LENGTH = 17
+DTP_BAND_MIN = 1.4
+DTP_BAND_MAX = 2.2
+
 
 def prepare_dataframe(candles):
-    """Convert Upstox candles into a clean OHLCV DataFrame."""
-
+    """Convert Upstox candle rows into clean, chronological OHLCV data."""
     if not candles:
         return None
-
-    columns = [
-        "timestamp",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "oi",
-    ]
-
+    columns = ["timestamp", "open", "high", "low", "close", "volume", "oi"]
     try:
         df = pd.DataFrame(candles, columns=columns)
-
-        numeric_columns = [
-            "open", "high", "low", "close", "volume", "oi"
-        ]
-
-        for col in numeric_columns:
+        for col in ["open", "high", "low", "close", "volume", "oi"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        df["timestamp"] = pd.to_datetime(
-            df["timestamp"],
-            errors="coerce",
-            utc=True
-        )
-
-        df = df.dropna(
-            subset=["timestamp", "open", "high", "low", "close"]
-        ).copy()
-
-        df = df.sort_values("timestamp")
-
-        df = df.drop_duplicates(
-            subset=["timestamp"],
-            keep="last"
-        )
-
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+        df = df.dropna(subset=["timestamp", "open", "high", "low", "close"])
+        df = df.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
         df = df.reset_index(drop=True)
-
-        if df.empty:
-            return None
-
-        return df
-
-    except (ValueError, TypeError, KeyError) as error:
-        logging.exception("DataFrame preparation failed: %s", error)
+        return df if not df.empty else None
+    except (ValueError, TypeError, KeyError):
+        logging.exception("DataFrame preparation failed")
         return None
 
 
 def calculate_indicators(candles):
-    """Calculate technical indicators for the trading strategy."""
+    """Calculate DTP-like trend bands, DTP flips, EMA20/50 and ATR14.
 
+    The DTP signal is only confirmed on candle close. The original Pine source
+    was not verified, so the DTP section is a transparent reconstruction.
+    ATR is retained only for underlying risk levels, not for signal filtering.
+    """
     df = prepare_dataframe(candles)
-
     if df is None or len(df) < 50:
         return None
-
     try:
-        close = df["close"]
-        high = df["high"]
-        low = df["low"]
-        volume = df["volume"].fillna(0)
+        close, high, low = df["close"], df["high"], df["low"]
+        df["ema20"] = close.ewm(span=20, adjust=False).mean()
+        df["ema50"] = close.ewm(span=50, adjust=False).mean()
+        baseline = close.ewm(span=DTP_TREND_LENGTH, adjust=False).mean()
+        df["dtp_baseline"] = baseline
 
-        # EMA
-        df["ema9"] = close.ewm(
-            span=9, adjust=False
-        ).mean()
+        candle_range = (high - low).replace(0, np.nan)
+        close_position = ((close - low) / candle_range).fillna(0.5)
+        up_close = close > close.shift(1)
+        down_close = close < close.shift(1)
+        bull_condition = up_close & (close_position >= 1.0 - DTP_CLOSE_ZONE)
+        bear_condition = down_close & (close_position <= DTP_CLOSE_ZONE)
 
-        df["ema21"] = close.ewm(
-            span=21, adjust=False
-        ).mean()
+        bull_pulse = np.zeros(len(df), dtype=float)
+        bear_pulse = np.zeros(len(df), dtype=float)
+        for i in range(len(df)):
+            prev_bull = bull_pulse[i - 1] if i else 0.0
+            prev_bear = bear_pulse[i - 1] if i else 0.0
+            bull_pulse[i] = min(DTP_PULSE_CAP, prev_bull + 1.0) if bool(bull_condition.iloc[i]) else prev_bull * DTP_PULSE_DECAY
+            bear_pulse[i] = min(DTP_PULSE_CAP, prev_bear + 1.0) if bool(bear_condition.iloc[i]) else prev_bear * DTP_PULSE_DECAY
+        conviction = np.maximum(bull_pulse, bear_pulse) / DTP_PULSE_CAP
+        band_multiplier = DTP_BAND_MIN + (DTP_BAND_MAX - DTP_BAND_MIN) * (1.0 - conviction)
 
-        df["ema50"] = close.ewm(
-            span=50, adjust=False
-        ).mean()
+        deviation = (close - baseline).abs().rolling(DTP_MAD_LENGTH, min_periods=DTP_MAD_LENGTH).mean()
+        df["dtp_upper"] = baseline + deviation * band_multiplier
+        df["dtp_lower"] = baseline - deviation * band_multiplier
+        df["dtp_bull_pulse"] = bull_pulse
+        df["dtp_bear_pulse"] = bear_pulse
 
-        # RSI 14
-        delta = close.diff()
+        state = np.zeros(len(df), dtype=np.int8)
+        buy = np.zeros(len(df), dtype=bool)
+        sell = np.zeros(len(df), dtype=bool)
+        for i in range(1, len(df)):
+            state[i] = state[i - 1]
+            upper, lower = df["dtp_upper"].iloc[i], df["dtp_lower"].iloc[i]
+            prev_upper, prev_lower = df["dtp_upper"].iloc[i - 1], df["dtp_lower"].iloc[i - 1]
+            if pd.notna(upper) and pd.notna(prev_upper) and close.iloc[i] > upper and close.iloc[i - 1] <= prev_upper:
+                state[i] = 1
+            elif pd.notna(lower) and pd.notna(prev_lower) and close.iloc[i] < lower and close.iloc[i - 1] >= prev_lower:
+                state[i] = -1
+            buy[i] = state[i] == 1 and state[i - 1] != 1
+            sell[i] = state[i] == -1 and state[i - 1] != -1
+        df["dtp_state"] = state
+        df["dtp_buy"] = buy
+        df["dtp_sell"] = sell
 
-        gain = delta.clip(lower=0)
-        loss = -delta.clip(upper=0)
-
-        avg_gain = gain.ewm(
-            alpha=1 / 14,
-            adjust=False,
-            min_periods=14
-        ).mean()
-
-        avg_loss = loss.ewm(
-            alpha=1 / 14,
-            adjust=False,
-            min_periods=14
-        ).mean()
-
-        rs = avg_gain / avg_loss.replace(0, np.nan)
-
-        df["rsi"] = 100 - (100 / (1 + rs))
-
-        df.loc[
-            (avg_gain > 0) & (avg_loss == 0), "rsi"
-        ] = 100
-
-        df.loc[
-            (avg_gain == 0) & (avg_loss > 0), "rsi"
-        ] = 0
-
-        df.loc[
-            (avg_gain == 0) & (avg_loss == 0), "rsi"
-        ] = 50
-
-        # MACD 12, 26, 9
-        ema12 = close.ewm(
-            span=12, adjust=False
-        ).mean()
-
-        ema26 = close.ewm(
-            span=26, adjust=False
-        ).mean()
-
-        df["macd"] = ema12 - ema26
-
-        df["macd_signal"] = df["macd"].ewm(
-            span=9, adjust=False
-        ).mean()
-
-        # ATR 14
         previous_close = close.shift(1)
+        true_range = pd.concat([
+            high - low,
+            (high - previous_close).abs(),
+            (low - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        df["atr14"] = true_range.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
 
-        tr = pd.concat(
-            [
-                high - low,
-                (high - previous_close).abs(),
-                (low - previous_close).abs()
-            ],
-            axis=1
-        ).max(axis=1)
-
-        df["atr"] = tr.ewm(
-            alpha=1 / 14,
-            adjust=False,
-            min_periods=14
-        ).mean()
-
-        # ADX 14
-        up_move = high.diff()
-        down_move = -low.diff()
-
-        plus_dm = up_move.where(
-            (up_move > down_move) & (up_move > 0),
-            0.0
-        )
-
-        minus_dm = down_move.where(
-            (down_move > up_move) & (down_move > 0),
-            0.0
-        )
-
-        atr_safe = df["atr"].replace(0, np.nan)
-
-        plus_di = (
-            100 * plus_dm.ewm(
-                alpha=1 / 14,
-                adjust=False,
-                min_periods=14
-            ).mean() / atr_safe
-        )
-
-        minus_di = (
-            100 * minus_dm.ewm(
-                alpha=1 / 14,
-                adjust=False,
-                min_periods=14
-            ).mean() / atr_safe
-        )
-
-        di_sum = (plus_di + minus_di).replace(0, np.nan)
-
-        dx = (
-            100 * (plus_di - minus_di).abs() / di_sum
-        )
-
-        df["adx"] = dx.ewm(
-            alpha=1 / 14,
-            adjust=False,
-            min_periods=14
-        ).mean()
-
-        # Session-based VWAP
-        typical = (high + low + close) / 3
-
-        df["_session"] = df["timestamp"].dt.date
-
-        price_volume = typical * volume
-
-        cumulative_pv = price_volume.groupby(
-            df["_session"]
-        ).cumsum()
-
-        cumulative_volume = volume.groupby(
-            df["_session"]
-        ).cumsum()
-
-        df["vwap"] = (
-            cumulative_pv /
-            cumulative_volume.replace(0, np.nan)
-        )
-
-        df = df.drop(columns=["_session"])
-
-        # Volume average
-        df["volume_avg"] = volume.rolling(
-            window=20,
-            min_periods=20
-        ).mean()
-
-        # Supertrend 10, multiplier 3
-        multiplier = 3.0
-
-        atr = df["atr"]
-
-        midpoint = (high + low) / 2
-
-        basic_upper = midpoint + multiplier * atr
-        basic_lower = midpoint - multiplier * atr
-
-        upper = basic_upper.to_numpy(dtype=float)
-        lower = basic_lower.to_numpy(dtype=float)
-
-        prices = close.to_numpy(dtype=float)
-        atr_values = atr.to_numpy(dtype=float)
-
-        final_upper = np.full(len(df), np.nan)
-        final_lower = np.full(len(df), np.nan)
-
-        direction = np.ones(len(df), dtype=np.int64)
-        supertrend = np.full(len(df), np.nan)
-
-        valid_positions = np.flatnonzero(
-            np.isfinite(atr_values)
-        )
-
-        if len(valid_positions) > 0:
-
-            first = valid_positions[0]
-
-            final_upper[first] = upper[first]
-            final_lower[first] = lower[first]
-
-            direction[first] = -1
-            supertrend[first] = final_upper[first]
-
-            for i in range(first + 1, len(df)):
-
-                if not np.isfinite(atr_values[i]):
-                    continue
-
-                previous_upper = final_upper[i - 1]
-                previous_lower = final_lower[i - 1]
-                previous_close = prices[i - 1]
-
-                if (
-                    upper[i] < previous_upper
-                    or previous_close > previous_upper
-                ):
-                    final_upper[i] = upper[i]
-                else:
-                    final_upper[i] = previous_upper
-
-                if (
-                    lower[i] > previous_lower
-                    or previous_close < previous_lower
-                ):
-                    final_lower[i] = lower[i]
-                else:
-                    final_lower[i] = previous_lower
-
-                if direction[i - 1] == -1:
-
-                    if prices[i] > final_upper[i]:
-                        direction[i] = 1
-                    else:
-                        direction[i] = -1
-
-                else:
-
-                    if prices[i] < final_lower[i]:
-                        direction[i] = -1
-                    else:
-                        direction[i] = 1
-
-                if direction[i] == 1:
-                    supertrend[i] = final_lower[i]
-                else:
-                    supertrend[i] = final_upper[i]
-
-        df["supertrend"] = supertrend
-        df["supertrend_direction"] = direction
-
-        # Final validation
-        df = df.replace(
-            [np.inf, -np.inf],
-            np.nan
-        )
-
+        df = df.replace([np.inf, -np.inf], np.nan)
         return df
-
     except Exception as error:
-        logging.exception(
-            "Indicator calculation failed: %s",
-            error
-        )
+        logging.exception("Indicator calculation failed: %s", error)
         return None
-        
